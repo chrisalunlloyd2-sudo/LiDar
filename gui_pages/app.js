@@ -1,218 +1,3 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>lidarv2 — emulative LiDAR</title>
-<style>
-  :root {
-    --bg: #070a12;
-    --panel: rgba(14, 20, 34, 0.92);
-    --line: #1d2a44;
-    --ink: #d7e3ff;
-    --dim: #6f86b0;
-    --acc: #00ffaa;
-    --acc2: #59a7ff;
-    --warn: #ffb340;
-    --bad: #ff5c6c;
-  }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { height: 100%; }
-  body {
-    font-family: ui-monospace, "Cascadia Mono", "Courier New", monospace;
-    background: radial-gradient(1200px 700px at 70% -10%, #0d1830 0%, var(--bg) 60%);
-    color: var(--ink);
-    overflow-x: hidden;
-  }
-  header {
-    padding: 10px 14px;
-    border-bottom: 1px solid var(--line);
-    background: linear-gradient(90deg, rgba(0,255,170,0.08), transparent 60%);
-    display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
-  }
-  header h1 { font-size: 15px; letter-spacing: 1px; color: var(--acc); }
-  header .sub { font-size: 11px; color: var(--dim); }
-  header .ver { margin-left: auto; font-size: 11px; color: var(--dim); }
-
-  .controls {
-    display: flex; flex-wrap: wrap; gap: 6px;
-    padding: 8px 12px; border-bottom: 1px solid var(--line);
-    background: rgba(8, 12, 22, 0.9);
-    align-items: center;
-  }
-  .controls label { font-size: 10px; color: var(--dim); display: flex; flex-direction: column; gap: 2px; }
-  .controls input, .controls select {
-    background: #0b1220; color: var(--ink); border: 1px solid #24344f;
-    border-radius: 4px; padding: 4px 6px; font-size: 12px; font-family: inherit;
-    width: 104px;
-  }
-  .controls select { width: 150px; }
-  .btn {
-    background: #101a2c; color: var(--acc2); border: 1px solid #2a3d5f;
-    border-radius: 5px; padding: 6px 11px; font-size: 11px; cursor: pointer;
-    font-family: inherit; letter-spacing: .4px;
-  }
-  .btn:hover { border-color: var(--acc2); }
-  .btn.on { background: #073b2c; border-color: var(--acc); color: var(--acc); }
-  .btn.warn { color: var(--warn); border-color: #5a4419; }
-  .btn.danger { color: var(--bad); border-color: #5a1f27; }
-
-  main { display: grid; grid-template-columns: 1.25fr 1fr; gap: 10px; padding: 10px; }
-  @media (max-width: 820px) { main { grid-template-columns: 1fr; } }
-
-  .viewport {
-    position: relative; border: 1px solid var(--line); border-radius: 8px;
-    overflow: hidden; background: #000; aspect-ratio: 3 / 4; min-height: 320px;
-  }
-  #video { width: 100%; height: 100%; object-fit: cover; }
-  #overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-  .reticle {
-    position: absolute; inset: 0; pointer-events: none;
-    background:
-      linear-gradient(to right, transparent calc(50% - 1px), rgba(0,255,170,.22) 50%, transparent calc(50% + 1px)),
-      linear-gradient(to bottom, transparent calc(50% - 1px), rgba(0,255,170,.22) 50%, transparent calc(50% + 1px));
-  }
-  .badge {
-    position: absolute; top: 8px; left: 8px;
-    background: rgba(6,10,18,.82); border: 1px solid var(--line);
-    border-radius: 4px; padding: 3px 8px; font-size: 10px; color: var(--dim);
-  }
-  .badge b { color: var(--acc); }
-
-  .panel { display: flex; flex-direction: column; gap: 10px; }
-  .card {
-    background: var(--panel); border: 1px solid var(--line);
-    border-radius: 8px; padding: 12px;
-  }
-  .card h2 {
-    font-size: 10px; letter-spacing: 1.4px; color: var(--dim);
-    text-transform: uppercase; margin-bottom: 8px;
-  }
-  .big { font-size: 30px; font-weight: 700; color: var(--acc); line-height: 1; }
-  .big small { font-size: 13px; color: var(--dim); font-weight: 400; }
-  .ci { font-size: 12px; color: var(--acc2); margin-top: 4px; }
-  .ci .range { color: var(--dim); }
-  .bar { height: 8px; background: #16203a; border-radius: 5px; overflow: hidden; margin: 8px 0 4px; }
-  .bar > i { display: block; height: 100%; width: 0%; background: var(--acc); transition: width .25s; }
-  .kv { display: flex; justify-content: space-between; font-size: 11px; margin: 3px 0; gap: 10px; }
-  .kv span:first-child { color: var(--dim); }
-  .kv span:last-child { text-align: right; word-break: break-all; }
-
-  .tag {
-    display: inline-block; background: #072a24; color: var(--acc);
-    border: 1px solid #0d5a48; border-radius: 4px; padding: 2px 8px; font-size: 12px;
-  }
-  .flag {
-    display: inline-block; margin: 3px 4px 0 0; padding: 2px 7px; font-size: 10px;
-    border-radius: 4px; border: 1px solid #4a3a12; color: var(--warn); background: #221a08;
-  }
-  .flag.hard { border-color: #5a1f27; color: var(--bad); background: #220a0e; }
-  .muted { color: var(--dim); font-size: 11px; }
-
-  #map { width: 100%; height: 190px; background: #060a12; border: 1px solid var(--line); border-radius: 6px; }
-  .inv { max-height: 240px; overflow-y: auto; }
-  .inv .row {
-    display: flex; justify-content: space-between; gap: 8px;
-    padding: 6px 0; border-bottom: 1px dashed #16203a; font-size: 11px;
-  }
-  .inv .row:last-child { border-bottom: 0; }
-  .inv .t { color: var(--acc); }
-  .inv .g { color: var(--dim); font-size: 10px; }
-
-  #status {
-    padding: 6px 12px; font-size: 11px; color: var(--dim);
-    border-top: 1px solid var(--line); min-height: 26px;
-  }
-  #status.ok { color: var(--acc); }
-  #status.err { color: var(--bad); }
-  footer { padding: 10px 14px; font-size: 10px; color: #45577a; line-height: 1.5; }
-</style>
-</head>
-<body>
-<header>
-  <h1>◉ LIDARV2</h1>
-  <span class="sub">emulative LiDAR · confidence intervals · geotagged inventory</span>
-  <span class="ver">v2.0.0 · stdlib backend</span>
-</header>
-
-<div class="controls">
-  <label>Room
-    <input id="room" value="basement B">
-  </label>
-  <label>Object preset
-    <select id="preset"></select>
-  </label>
-  <label>Known width (mm)
-    <input id="known" type="number" value="88.9" step="0.1">
-  </label>
-  <label>Cal distance (cm)
-    <input id="caldist" type="number" value="100" step="5">
-  </label>
-  <label>FOV (°)
-    <input id="fov" type="number" value="60" step="5" min="20" max="120">
-  </label>
-  <label>Camera height (m)
-    <input id="camh" type="number" value="1.5" step="0.05">
-  </label>
-  <button class="btn" id="btnStart">Start camera</button>
-  <button class="btn" id="btnCal">Calibrate</button>
-  <button class="btn" id="btnScan">Scan ground</button>
-  <button class="btn warn" id="btnDemo">Seed demo</button>
-  <button class="btn danger" id="btnReset">Reset</button>
-</div>
-
-<main>
-  <section class="viewport">
-    <video id="video" autoplay playsinline muted></video>
-    <div class="reticle"></div>
-    <canvas id="overlay"></canvas>
-    <div class="badge" id="sensor">GPS: — · compass: —</div>
-  </section>
-
-  <section class="panel">
-    <div class="card">
-      <h2>Depth estimate</h2>
-      <div class="big" id="depth">— <small>m</small></div>
-      <div class="ci" id="ci">confidence interval: —</div>
-      <div class="bar"><i id="confbar"></i></div>
-      <div class="kv"><span>confidence</span><span id="confpct">—</span></div>
-      <div class="kv"><span>object</span><span><span class="tag" id="tag">unknown</span></span></div>
-      <div class="kv"><span>emulated dims</span><span id="dims">—</span></div>
-      <div class="kv"><span>cues</span><span id="cues">—</span></div>
-      <div id="flags" style="margin-top:8px"></div>
-    </div>
-
-    <div class="card">
-      <h2>Geospatial coordinate</h2>
-      <div class="kv"><span>latitude</span><span id="lat">—</span></div>
-      <div class="kv"><span>longitude</span><span id="lon">—</span></div>
-      <div class="kv"><span>altitude</span><span id="alt">—</span></div>
-      <div class="kv"><span>± radius</span><span id="radius">—</span></div>
-      <div class="kv"><span>bearing / range</span><span id="bearing">—</span></div>
-    </div>
-
-    <div class="card">
-      <h2>Local map (ENU, metres)</h2>
-      <canvas id="map"></canvas>
-      <div class="muted" id="mapinfo" style="margin-top:6px">no points yet</div>
-    </div>
-
-    <div class="card">
-      <h2>Inventory</h2>
-      <div class="inv" id="inv"><div class="muted">empty</div></div>
-    </div>
-  </section>
-</main>
-
-<div id="status">Ready — start the camera, then Calibrate.</div>
-
-<footer>
-  lidarv2 estimates monocular depth, fuses it into a confidence interval, projects it to WGS84,
-  filters optical illusions, and inventories tagged objects. Ground scan assumes a flat floor.
-  Calibrate with a known-width object for best accuracy.
-</footer>
-
-<script>
 "use strict";
 
 const $ = (id) => document.getElementById(id);
@@ -224,7 +9,6 @@ const state = {
   pose: { lat: 0, lon: 0, alt_m: 0, heading_deg: 0, pitch_deg: 0, roll_deg: 0, accuracy_m: 8, has_gps: false },
   fCal: 0,
   detection: null,
-  smooth: [],
   sendTimer: null,
   mapPoints: [],
   lastResult: null,
@@ -233,16 +17,31 @@ const state = {
 const PRESETS = [
   ["2x4", 88.9], ["2x6", 139.7], ["2x8", 184.2], ["4x4", 88.9], ["1x4", 88.9],
   ["credit_card", 85.6], ["a4_paper", 210.0], ["brick", 200.0],
-  ["paint_can", 168.0], ["box", 400.0], ["custom", 88.9],
+  ["paint_can", 168.0], ["box", 400.0], ["square_100", 100.0],
+  ["cube_100", 100.0], ["rect_200x100", 200.0], ["custom", 88.9],
 ];
+
+const PAGES = ["controls", "camera", "measure", "geo", "map", "inventory", "illusions", "settings"];
+
+// ── modular page loading (mmap-backed fragments) ──────────────────────
+async function loadPages() {
+  await Promise.all(PAGES.map(async (name) => {
+    try {
+      const res = await fetch(`/page/${name}.html`, { cache: "no-store" });
+      const slot = $(`slot-${name}`);
+      if (res.ok && slot) slot.innerHTML = await res.text();
+    } catch (e) { /* leave slot empty */ }
+  }));
+}
 
 function fillPresets() {
   const sel = $("preset");
+  if (!sel) return;
   sel.innerHTML = PRESETS.map(([tag, w]) =>
     `<option value="${tag}" data-w="${w}">${tag} (${w} mm)</option>`).join("");
   sel.onchange = () => {
     const opt = sel.selectedOptions[0];
-    $("known").value = opt.dataset.w;
+    if (opt) $("known").value = opt.dataset.w;
   };
 }
 
@@ -262,11 +61,8 @@ function watchGPS() {
 }
 
 function onOrientation(e) {
-  if (e.webkitCompassHeading != null) {
-    state.pose.heading_deg = e.webkitCompassHeading;
-  } else if (e.alpha != null) {
-    state.pose.heading_deg = (360 - e.alpha) % 360;
-  }
+  if (e.webkitCompassHeading != null) state.pose.heading_deg = e.webkitCompassHeading;
+  else if (e.alpha != null) state.pose.heading_deg = (360 - e.alpha) % 360;
   if (e.beta != null) state.pose.pitch_deg = e.beta - 90;
   if (e.gamma != null) state.pose.roll_deg = e.gamma;
   updateSensorBadge();
@@ -285,10 +81,10 @@ function enableOrientation() {
 }
 
 function updateSensorBadge() {
-  const g = state.pose.has_gps
-    ? `GPS ±${state.pose.accuracy_m.toFixed(0)}m`
-    : "GPS: —";
-  $("sensor").innerHTML = `${g} · compass <b>${state.pose.heading_deg.toFixed(0)}°</b>`;
+  const el = $("sensor");
+  if (!el) return;
+  const g = state.pose.has_gps ? `GPS ±${state.pose.accuracy_m.toFixed(0)}m` : "GPS: —";
+  el.innerHTML = `${g} · compass <b>${state.pose.heading_deg.toFixed(0)}°</b>`;
 }
 
 // ── camera ────────────────────────────────────────────────────────────
@@ -330,11 +126,9 @@ function makeIntrinsics(w, h, fov) {
 
 function resizeOverlay() {
   const ov = $("overlay");
-  ov.width = ov.offsetWidth;
-  ov.height = ov.offsetHeight;
+  if (ov) { ov.width = ov.offsetWidth; ov.height = ov.offsetHeight; }
   const map = $("map");
-  map.width = map.offsetWidth;
-  map.height = map.offsetHeight;
+  if (map) { map.width = map.offsetWidth; map.height = map.offsetHeight; drawMap(); }
 }
 
 // ── frame analysis ────────────────────────────────────────────────────
@@ -343,7 +137,7 @@ const wctx = work.getContext("2d", { willReadFrequently: true });
 
 function analyzeFrame() {
   const video = $("video");
-  if (!video.videoWidth || !state.intrinsics) return null;
+  if (!video || !video.videoWidth || !state.intrinsics) return null;
   const W = video.videoWidth, H = video.videoHeight;
   work.width = W; work.height = H;
   wctx.drawImage(video, 0, 0, W, H);
@@ -354,27 +148,20 @@ function analyzeFrame() {
   const rows = y1 - y0;
   const colLum = new Float64Array(W);
   const colGrad = new Float64Array(W);
-  const colSat = new Float64Array(W);
   let specularCount = 0, lumSum = 0, lumSq = 0, total = 0;
 
   for (let y = y0; y < y1; y++) {
     for (let x = 0; x < W - 1; x++) {
-      const i = (y * W + x) * 4;
-      const j = (y * W + x + 1) * 4;
+      const i = (y * W + x) * 4, j = (y * W + x + 1) * 4;
       const r = data[i], g = data[i + 1], b = data[i + 2];
       const rn = data[j], gn = data[j + 1], bn = data[j + 2];
-      const lum = (r + g + b) / 3;
-      const lumN = (rn + gn + bn) / 3;
-      colLum[x] += lum;
-      colGrad[x] += Math.abs(lum - lumN);
-      colSat[x] += Math.max(r, g, b) - Math.min(r, g, b);
+      const lum = (r + g + b) / 3, lumN = (rn + gn + bn) / 3;
+      colLum[x] += lum; colGrad[x] += Math.abs(lum - lumN);
       if (lum > 235 && r > 220 && g > 220 && b > 220) specularCount++;
       lumSum += lum; lumSq += lum * lum; total++;
     }
   }
-  for (let x = 0; x < W - 1; x++) {
-    colLum[x] /= rows; colGrad[x] /= rows; colSat[x] /= rows;
-  }
+  for (let x = 0; x < W - 1; x++) { colLum[x] /= rows; colGrad[x] /= rows; }
 
   const mean = lumSum / Math.max(1, total);
   const variance = Math.max(0, lumSq / Math.max(1, total) - mean * mean);
@@ -398,10 +185,8 @@ function analyzeFrame() {
     } else { curStart = -1; curLen = 0; }
   }
   if (bestLen < 10) return null;
-
   const centerX = bestStart + bestLen / 2;
 
-  // vertical extent at the detected centre column
   const cx = Math.max(0, Math.min(W - 1, Math.round(centerX)));
   let top = -1, bottom = -1;
   for (let y = Math.floor(H * 0.1); y < Math.floor(H * 0.9); y++) {
@@ -412,7 +197,6 @@ function analyzeFrame() {
   const pxHeight = (top >= 0 && bottom > top) ? (bottom - top) : bestLen * 0.45;
   const centerY = (top >= 0 && bottom > top) ? (top + bottom) / 2 : H * 0.5;
 
-  // texture / sharpness / convergence proxies
   let gsum = 0, gsq = 0, gcount = 0;
   for (let x = left; x <= right; x++) { gsum += colGrad[x]; gsq += colGrad[x] ** 2; gcount++; }
   const gradMean = gsum / Math.max(1, gcount);
@@ -421,8 +205,9 @@ function analyzeFrame() {
   const sharpness = clamp01(Math.sqrt(gradVar) / 50);
 
   let eL = 0, eR = 0;
-  for (let x = left; x < left + (right - left) * 0.2; x++) eL += colGrad[x];
-  for (let x = right - (right - left) * 0.2; x <= right; x++) eR += colGrad[x];
+  const band = (right - left) * 0.2;
+  for (let x = left; x < left + band; x++) eL += colGrad[x];
+  for (let x = right - band; x <= right; x++) eR += colGrad[x];
   const convergence = clamp01(1 - Math.min(eL, eR) / Math.max(eL, eR, 1e-6));
 
   return {
@@ -440,10 +225,8 @@ function calibrate() {
   const K = parseFloat($("known").value);
   const calD = parseFloat($("caldist").value);
   if (!K || !calD) { setStatus("Calibrate: set known width + distance.", "err"); return; }
-  // d_mm = K * f / p  ->  f = d_mm * p / K
   state.fCal = (calD * 10 * det.width) / K;
   state.intrinsics.f_px = state.fCal;
-  state.smooth = [];
   setStatus(`Calibrated: f = ${state.fCal.toFixed(1)} px (object ${det.width.toFixed(1)} px).`, "ok");
 }
 
@@ -464,6 +247,7 @@ async function sendObservation() {
     pose: state.pose,
     known_width_mm: parseFloat($("known").value) || null,
     object_class: $("preset").value,
+    shape_mode: $("shapemode").value,
     camera_height_m: parseFloat($("camh").value) || 1.5,
     texture_density: det.textureDensity,
     sharpness: det.sharpness,
@@ -493,7 +277,7 @@ async function sendObservation() {
 function renderResult(d) {
   const est = d.estimate;
   $("depth").innerHTML = `${est.depth_m.toFixed(2)} <small>m</small>`;
-  const half = ((est.ci_high_m - est.ci_low_m) / 2);
+  const half = (est.ci_high_m - est.ci_low_m) / 2;
   $("ci").innerHTML = `±${half.toFixed(2)} m (${(est.level * 100).toFixed(0)}%) `
     + `<span class="range">[${est.ci_low_m.toFixed(2)}, ${est.ci_high_m.toFixed(2)}]</span>`;
   const pct = Math.round(est.confidence * 100);
@@ -503,8 +287,14 @@ function renderResult(d) {
   bar.style.background = pct > 70 ? "var(--acc)" : pct > 40 ? "var(--warn)" : "var(--bad)";
 
   $("tag").textContent = d.tag.label || d.tag.tag;
-  $("dims").textContent = `${d.dimensions_mm.w} × ${d.dimensions_mm.h}`
-    + (d.dimensions_mm.d != null ? ` × ${d.dimensions_mm.d}` : "") + " mm";
+  const raw = d.dimensions_mm;
+  const corr = d.corrected_dimensions_mm || raw;
+  const fmtDims = (x) => `${x.w} × ${x.h}` + (x.d != null ? ` × ${x.d}` : "") + " mm";
+  $("dims").textContent = fmtDims(raw);
+  $("dimsCorr").textContent = fmtDims(corr);
+  const cp = d.corrections ? d.corrections.correction_percent : 0;
+  $("corrPct").textContent = `${cp.toFixed(2)} %`;
+  $("shape").textContent = d.shape ? `${d.shape.shape} (aspect ${d.shape.aspect})` : "—";
   $("cues").textContent = est.cues.map((c) => `${c.name}:${c.depth_m.toFixed(2)}`).join("  ");
 
   const flagBox = $("flags");
@@ -515,7 +305,7 @@ function renderResult(d) {
     r.textContent = "REJECTED — " + (d.illusions.reason || "illusion risk");
     flagBox.appendChild(r);
   }
-  d.illusions.flags.slice(0, 4).forEach((f) => {
+  (d.illusions.flags || []).slice(0, 4).forEach((f) => {
     const el = document.createElement("span");
     el.className = "flag" + (f.severity > 0.7 ? " hard" : "");
     el.textContent = `${f.label} ${f.severity.toFixed(2)}`;
@@ -538,6 +328,7 @@ function renderResult(d) {
 
 function drawOverlay(det) {
   const ov = $("overlay");
+  if (!ov) return;
   const ctx = ov.getContext("2d");
   ctx.clearRect(0, 0, ov.width, ov.height);
   if (!det || !state.intrinsics) return;
@@ -565,6 +356,7 @@ function addMapPoint(east, north) {
 
 function drawMap() {
   const c = $("map");
+  if (!c) return;
   const ctx = c.getContext("2d");
   ctx.clearRect(0, 0, c.width, c.height);
   const cx = c.width / 2, cy = c.height / 2;
@@ -593,7 +385,6 @@ function drawMap() {
     ctx.fillRect(x - 1.5, y - 1.5, 3, 3);
   }
 
-  // camera arrow (heading up = north)
   const h = state.pose.heading_deg * Math.PI / 180;
   ctx.strokeStyle = "rgba(89,167,255,0.95)";
   ctx.lineWidth = 2;
@@ -602,7 +393,8 @@ function drawMap() {
   ctx.lineTo(cx + Math.sin(h) * 18, cy - Math.cos(h) * 18);
   ctx.stroke();
 
-  $("mapinfo").textContent = `${pts.length} points · scale ${maxR.toFixed(1)} m`;
+  const info = $("mapinfo");
+  if (info) info.textContent = `${pts.length} points · scale ${maxR.toFixed(1)} m`;
 }
 
 // ── ground scan ───────────────────────────────────────────────────────
@@ -629,62 +421,125 @@ async function scanGround() {
   }
 }
 
+// ── fit model ─────────────────────────────────────────────────────────
+async function fitModel() {
+  const det = state.detection, last = state.lastResult;
+  if (!det || !last) { setStatus("Fit: take a measurement first.", "err"); return; }
+  const corners = [
+    [det.centerX - det.width / 2, det.centerY - det.height / 2],
+    [det.centerX + det.width / 2, det.centerY - det.height / 2],
+    [det.centerX + det.width / 2, det.centerY + det.height / 2],
+    [det.centerX - det.width / 2, det.centerY + det.height / 2],
+  ];
+  try {
+    const res = await fetch("/api/fit", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        corners_px: corners, intrinsics: state.intrinsics,
+        depth_m: last.estimate.depth_m, kind: $("shapemode").value,
+      }),
+    });
+    const d = await res.json();
+    if (!res.ok || d.error) { setStatus(d.error || "fit failed", "err"); return; }
+    setStatus(`Fit ${d.kind}: ${d.w_mm} × ${d.h_mm}` +
+      (d.d_mm != null ? ` × ${d.d_mm}` : "") + ` mm · rms ${d.rms_px} px`, "ok");
+  } catch (e) { setStatus("fit failed: " + e.message, "err"); }
+}
+
 // ── inventory ─────────────────────────────────────────────────────────
 async function refreshInventory() {
   try {
     const room = encodeURIComponent($("room").value || "");
     const res = await fetch(`/api/inventory?room=${room}`);
-    const data = await res.json();
-    renderInventory(data);
+    renderInventory(await res.json());
   } catch (e) { /* non-fatal */ }
 }
 
 function renderInventory(data) {
   const box = $("inv");
+  if (!box) return;
   if (!data.items || !data.items.length) {
     box.innerHTML = '<div class="muted">empty — seed a demo or find an item</div>';
     return;
   }
   box.innerHTML = data.items.map((it) => {
-    const dims = `${fmt(it.w_mm)} × ${fmt(it.h_mm)}`
-      + (it.d_mm != null ? ` × ${fmt(it.d_mm)}` : "") + " mm";
+    const dims = `${fmt(it.w_mm)} × ${fmt(it.h_mm)}` + (it.d_mm != null ? ` × ${fmt(it.d_mm)}` : "") + " mm";
     return `<div class="row">
-      <div>
-        <div class="t">${it.label || it.tag} ×${it.count}</div>
-        <div class="g">${dims} · conf ${(it.confidence * 100).toFixed(0)}%</div>
-      </div>
-      <div class="g" style="text-align:right">
-        ${Number(it.lat).toFixed(6)},<br>${Number(it.lon).toFixed(6)}
-      </div>
+      <div><div class="t">${it.label || it.tag} ×${it.count}</div>
+      <div class="g">${dims} · conf ${(it.confidence * 100).toFixed(0)}%</div></div>
+      <div class="g" style="text-align:right">${Number(it.lat).toFixed(6)},<br>${Number(it.lon).toFixed(6)}</div>
     </div>`;
   }).join("");
 }
 
 function fmt(v) { return v == null ? "?" : Number(v).toFixed(1); }
 
-// ── demo / reset ──────────────────────────────────────────────────────
+// ── illusions list ────────────────────────────────────────────────────
+async function loadIllusionList() {
+  try {
+    const res = await fetch("/api/illusions");
+    const data = await res.json();
+    const box = $("illusions");
+    if (!box) return;
+    box.innerHTML = data.illusions.map((i) => `
+      <div class="ill">
+        <div><div class="n">${i.name}</div><div class="k">${i.kind} · ${i.formula}</div></div>
+        <div class="s ${i.severity > 0 ? "" : "zero"}">${(i.severity * 100).toFixed(0)}%</div>
+      </div>`).join("")
+      + `<div class="muted" style="margin-top:6px">${data.note}</div>`;
+  } catch (e) { /* non-fatal */ }
+}
+
+// ── demo / premade / benchmark / reset ────────────────────────────────
 async function seedDemo() {
   try {
     const res = await fetch("/api/demo", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        room: $("room").value || "basement B",
-        intrinsics: state.intrinsics || makeIntrinsics(720, 1280, 60),
-      }),
+      body: JSON.stringify({ room: $("room").value || "basement B",
+                             intrinsics: state.intrinsics || makeIntrinsics(720, 1280, 60) }),
     });
     const data = await res.json();
     if (data.inventory) {
       renderInventory({ items: data.inventory });
-      const pts = data.inventory.map((it, i) => ({
-        east: Math.cos(i) * 2, north: Math.sin(i) * 3,
-      }));
-      state.mapPoints = pts;
+      state.mapPoints = data.inventory.map((it, i) => ({ east: Math.cos(i) * 2, north: Math.sin(i) * 3 }));
       drawMap();
     }
     setStatus(`Seeded ${data.seeded} demo observations into "${$("room").value}".`, "ok");
-  } catch (e) {
-    setStatus("demo failed: " + e.message, "err");
-  }
+  } catch (e) { setStatus("demo failed: " + e.message, "err"); }
+}
+
+async function runPremade() {
+  try {
+    const res = await fetch("/api/premade", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tag: $("preset").value, depth_m: 2.0,
+                             room: $("room").value || "premade",
+                             intrinsics: state.intrinsics || makeIntrinsics(720, 1280, 60) }),
+    });
+    const d = await res.json();
+    if (!res.ok || d.error) { setStatus(d.error || "premade failed", "err"); return; }
+    renderResult(d.result);
+    setStatus(`Premade ${d.tag}: ${d.result.corrected_dimensions_mm.w}×${d.result.corrected_dimensions_mm.h} mm`
+      + ` vs truth ${d.truth_mm.w}×${d.truth_mm.h} mm (${d.error_pct.w}% / ${d.error_pct.h}%)`, "ok");
+    refreshInventory();
+  } catch (e) { setStatus("premade failed: " + e.message, "err"); }
+}
+
+async function runBenchmark() {
+  try {
+    const res = await fetch("/api/benchmark", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ depth_m: 2.0, noise_frac: 0.02, level: 0.95 }),
+    });
+    const d = await res.json();
+    if (!res.ok || d.error) { setStatus(d.error || "benchmark failed", "err"); return; }
+    $("bench").textContent = d.mean_mape_pct.toFixed(2) + " %";
+    $("coverage").textContent = `w ${d.coverage_w_pct}% / h ${d.coverage_h_pct}%`;
+    $("maxerr").textContent = d.max_error_pct.toFixed(2) + " %";
+    $("benchdetail").textContent = d.results
+      .map((r) => `${r.tag}: ${r.error_pct.w}% / ${r.error_pct.h}%`).join(" · ");
+    setStatus(`Benchmark MAPE ${d.mean_mape_pct}% — the number to minimise.`, "ok");
+  } catch (e) { setStatus("benchmark failed: " + e.message, "err"); }
 }
 
 async function resetAll() {
@@ -694,35 +549,41 @@ async function resetAll() {
     drawMap();
     renderInventory({ items: [] });
     setStatus("Map + inventory cleared.", "ok");
-  } catch (e) {
-    setStatus("reset failed: " + e.message, "err");
-  }
+  } catch (e) { setStatus("reset failed: " + e.message, "err"); }
 }
 
 function setStatus(msg, kind) {
   const el = $("status");
+  if (!el) return;
   el.textContent = msg;
   el.className = kind === "ok" ? "ok" : kind === "err" ? "err" : "";
 }
 
 // ── wire up ───────────────────────────────────────────────────────────
-function init() {
-  fillPresets();
+function bindButtons() {
   $("btnStart").onclick = toggleCamera;
   $("btnCal").onclick = calibrate;
   $("btnScan").onclick = scanGround;
+  $("btnFit").onclick = fitModel;
+  $("btnPremade").onclick = runPremade;
   $("btnDemo").onclick = seedDemo;
+  $("btnBench").onclick = runBenchmark;
   $("btnReset").onclick = resetAll;
-  window.addEventListener("resize", resizeOverlay);
+}
+
+async function init() {
+  await loadPages();
+  fillPresets();
+  bindButtons();
   enableOrientation();
   watchGPS();
   resizeOverlay();
+  window.addEventListener("resize", resizeOverlay);
   drawMap();
   setInterval(refreshInventory, 5000);
   refreshInventory();
+  loadIllusionList();
+  setStatus("Ready — start the camera, then Calibrate. Or press Premade object / Benchmark.", "ok");
 }
 
 document.addEventListener("DOMContentLoaded", init);
-</script>
-</body>
-</html>

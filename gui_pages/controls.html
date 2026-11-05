@@ -1,0 +1,17 @@
+<div class="controls">
+  <label>Room <input id="room" value="basement B"></label>
+  <label>Object preset <select id="preset"></select></label>
+  <label>Known width (mm) <input id="known" type="number" value="88.9" step="0.1"></label>
+  <label>Cal distance (cm) <input id="caldist" type="number" value="100" step="5"></label>
+  <label>FOV (°) <input id="fov" type="number" value="60" step="5" min="20" max="120"></label>
+  <label>Camera height (m) <input id="camh" type="number" value="1.5" step="0.05"></label>
+  <label>Shape mode <select id="shapemode"><option value="rectangle">rectangle</option><option value="cuboid">cuboid</option></select></label>
+  <button class="btn" id="btnStart">Start camera</button>
+  <button class="btn" id="btnCal">Calibrate</button>
+  <button class="btn" id="btnScan">Scan ground</button>
+  <button class="btn" id="btnFit">Fit model</button>
+  <button class="btn warn" id="btnPremade">Premade object</button>
+  <button class="btn warn" id="btnDemo">Seed demo</button>
+  <button class="btn" id="btnBench">Benchmark</button>
+  <button class="btn danger" id="btnReset">Reset</button>
+</div>

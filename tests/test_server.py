@@ -10,6 +10,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from server import build_server  # noqa: E402
+from models import CameraIntrinsics, CameraPose  # noqa: E402
+from geospatial import enu_to_geodetic  # noqa: E402
+from triangulate import enu_direction_to_pixel  # noqa: E402
 
 
 def request_json(base, method, path, payload=None):
@@ -67,6 +70,7 @@ class TestServer(unittest.TestCase):
     def tearDownClass(cls):
         cls.httpd.shutdown()
         cls.httpd.server_close()
+        cls.httpd.page_store.close()
         cls.httpd.store.close()
 
     def test_health(self):
@@ -141,6 +145,98 @@ class TestServer(unittest.TestCase):
             request_json(self.base, "GET", "/api/nope")
         self.assertEqual(ctx.exception.code, 404)
         ctx.exception.close()
+
+    # ── modular mmap GUI ───────────────────────────────────────────────
+    def test_pages_listed(self):
+        status, body = request_json(self.base, "GET", "/api/pages")
+        self.assertEqual(status, 200)
+        for name in ("shell.html", "app.js", "controls.html", "measure.html"):
+            self.assertIn(name, body["pages"])
+
+    def test_page_fragment_served(self):
+        status, html = request_text(self.base, "/page/controls.html")
+        self.assertEqual(status, 200)
+        self.assertIn("btnStart", html)
+
+    def test_app_js_served(self):
+        status, js = request_text(self.base, "/page/app.js")
+        self.assertEqual(status, 200)
+        self.assertIn("loadPages", js)
+
+    # ── new engines ────────────────────────────────────────────────────
+    def test_illusions_registry(self):
+        status, body = request_json(self.base, "GET", "/api/illusions")
+        self.assertEqual(status, 200)
+        self.assertEqual(len(body["illusions"]), 5)
+        ids = [i["id"] for i in body["illusions"]]
+        for expected in ("ponzo", "muller_lyer", "vertical_horizontal",
+                         "ebbinghaus", "checker_shadow"):
+            self.assertIn(expected, ids)
+
+    def test_observe_includes_corrections_and_shape(self):
+        status, body = request_json(self.base, "POST", "/api/observe", observe_payload(1.0))
+        self.assertEqual(status, 200)
+        self.assertIn("corrections", body)
+        self.assertEqual(len(body["corrections"]["illusions"]), 5)
+        self.assertIn("combined_factor", body["corrections"])
+        self.assertIn("corrected_dimensions_mm", body)
+        self.assertIn("shape", body)
+        self.assertIn(body["shape"]["shape"], ("square", "rectangle", "cube", "cuboid", "lumber", "unknown"))
+
+    def test_fit_endpoint(self):
+        intr = {"f_px": 554.256, "cx": 320.0, "cy": 240.0,
+                "image_w": 640, "image_h": 480, "fov_deg": 60.0}
+        f = 554.256
+        hw = 50.0 / 1000.0 * f / 5.0
+        hh = 25.0 / 1000.0 * f / 5.0
+        corners = [[320 - hw, 240 - hh], [320 + hw, 240 - hh],
+                   [320 + hw, 240 + hh], [320 - hw, 240 + hh]]
+        status, body = request_json(self.base, "POST", "/api/fit", {
+            "corners_px": corners, "intrinsics": intr, "depth_m": 5.0, "kind": "rectangle",
+        })
+        self.assertEqual(status, 200)
+        self.assertAlmostEqual(body["w_mm"], 100.0, delta=2.0)
+        self.assertAlmostEqual(body["h_mm"], 50.0, delta=2.0)
+
+    def test_triangulate_endpoint(self):
+        intr = CameraIntrinsics.from_fov(640, 480, 60.0)
+        pose1 = CameraPose(lat=0.0, lon=0.0, alt_m=0.0, heading_deg=0.0,
+                           pitch_deg=0.0, roll_deg=0.0, accuracy_m=1.0, has_gps=True)
+        lat2, lon2, alt2 = enu_to_geodetic(0.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+        pose2 = CameraPose(lat=lat2, lon=lon2, alt_m=alt2, heading_deg=0.0,
+                           pitch_deg=0.0, roll_deg=0.0, accuracy_m=1.0, has_gps=True)
+        uv1 = enu_direction_to_pixel(0.0, 5.0, 0.0, pose1, intr)
+        uv2 = enu_direction_to_pixel(-1.0, 5.0, 0.0, pose2, intr)
+        status, body = request_json(self.base, "POST", "/api/triangulate", {
+            "intrinsics": {"f_px": intr.f_px, "cx": intr.cx, "cy": intr.cy,
+                           "image_w": 640, "image_h": 480, "fov_deg": 60.0},
+            "pose1": {"lat": 0.0, "lon": 0.0, "alt_m": 0.0, "heading_deg": 0.0,
+                      "pitch_deg": 0.0, "roll_deg": 0.0, "accuracy_m": 1.0, "has_gps": True},
+            "pose2": {"lat": lat2, "lon": lon2, "alt_m": alt2, "heading_deg": 0.0,
+                      "pitch_deg": 0.0, "roll_deg": 0.0, "accuracy_m": 1.0, "has_gps": True},
+            "uv1": list(uv1), "uv2": list(uv2),
+        })
+        self.assertEqual(status, 200)
+        self.assertAlmostEqual(body["north_m"], 5.0, delta=0.05)
+        self.assertAlmostEqual(body["east_m"], 0.0, delta=0.05)
+
+    def test_premade_endpoint(self):
+        status, body = request_json(self.base, "POST", "/api/premade", {
+            "tag": "2x4", "depth_m": 2.0, "room": "premade",
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(body["tag"], "2x4")
+        self.assertLess(body["error_pct"]["w"], 2.0)
+        self.assertIn("result", body)
+
+    def test_benchmark_endpoint(self):
+        status, body = request_json(self.base, "POST", "/api/benchmark", {
+            "depth_m": 2.0, "noise_frac": 0.02,
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(len(body["results"]), 6)
+        self.assertIn("mean_mape_pct", body)
+        self.assertIn("coverage_w_pct", body)
 
 
 if __name__ == "__main__":
