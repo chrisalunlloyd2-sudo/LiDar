@@ -52,68 +52,80 @@ def _grid(fixtures, depths, noise_levels):
 
 
 # ── stage 1: depth fusers ──────────────────────────────────────────────
+def eval_fuser(name, fixtures=None, depths=(1.0, 2.0, 3.0, 5.0),
+               noise_levels=(0.0, 0.02, 0.05), level=0.95):
+    """Evaluate one fuser. Module-level and picklable for the process pool."""
+    fixtures = fixtures or PREMADE
+    engine = DepthEngine()
+    fn = FUSERS[name]
+    tracemalloc.start()
+    start = time.perf_counter()
+    errors, covered, total = [], 0, 0
+    for seed, obj, depth, noise in _grid(fixtures, depths, noise_levels):
+        obs = synthesize(obj, depth, noise_frac=noise, seed=seed)
+        cues = engine.cues(obs)
+        est = fn(cues, level)
+        f = obs.intrinsics.f_px
+        w = est["depth_m"] * obs.object_px_width / f * 1000.0
+        h = est["depth_m"] * obs.object_px_height / f * 1000.0
+        errors += [percent_error(w, obj["w_mm"]), percent_error(h, obj["h_mm"])]
+        covered += 1 if est["ci_low_m"] <= depth <= est["ci_high_m"] else 0
+        total += 1
+    elapsed = (time.perf_counter() - start) * 1000.0
+    peak = tracemalloc.get_traced_memory()[1] / 1e6
+    tracemalloc.stop()
+    mape = sum(errors) / len(errors) if errors else 0.0
+    coverage = 100.0 * covered / max(1, total)
+    return {
+        "method": name, "mape": round(mape, 4), "coverage": round(coverage, 2),
+        "runtime_ms": round(elapsed, 2), "peak_mem_mb": round(peak, 3),
+        "score": round(_score(mape, coverage, elapsed), 4),
+    }
+
+
 def evaluate_fusers(fixtures=None, depths=(1.0, 2.0, 3.0, 5.0),
                     noise_levels=(0.0, 0.02, 0.05), level=0.95):
     fixtures = fixtures or PREMADE
-    engine = DepthEngine()
-    results = []
-    for name, fn in FUSERS.items():
-        tracemalloc.start()
-        start = time.perf_counter()
-        errors, covered, total = [], 0, 0
-        for seed, obj, depth, noise in _grid(fixtures, depths, noise_levels):
-            obs = synthesize(obj, depth, noise_frac=noise, seed=seed)
-            cues = engine.cues(obs)
-            est = fn(cues, level)
-            f = obs.intrinsics.f_px
-            w = est["depth_m"] * obs.object_px_width / f * 1000.0
-            h = est["depth_m"] * obs.object_px_height / f * 1000.0
-            errors += [percent_error(w, obj["w_mm"]), percent_error(h, obj["h_mm"])]
-            covered += 1 if est["ci_low_m"] <= depth <= est["ci_high_m"] else 0
-            total += 1
-        elapsed = (time.perf_counter() - start) * 1000.0
-        peak = tracemalloc.get_traced_memory()[1] / 1e6
-        tracemalloc.stop()
-        mape = sum(errors) / len(errors) if errors else 0.0
-        coverage = 100.0 * covered / max(1, total)
-        results.append({
-            "method": name, "mape": round(mape, 4), "coverage": round(coverage, 2),
-            "runtime_ms": round(elapsed, 2), "peak_mem_mb": round(peak, 3),
-            "score": round(_score(mape, coverage, elapsed), 4),
-        })
+    results = [eval_fuser(name, fixtures, depths, noise_levels, level) for name in FUSERS]
     return sorted(results, key=lambda r: r["score"])
 
 
 # ── stage 2: size estimators ───────────────────────────────────────────
+def eval_size(name, fixtures=None, depths=(1.0, 2.0, 3.0, 5.0),
+              noise_levels=(0.0, 0.02, 0.05), fuser="inverse_variance",
+              level=0.95):
+    """Evaluate one size estimator. Module-level and picklable."""
+    fixtures = fixtures or PREMADE
+    engine = DepthEngine()
+    fuse = FUSERS[fuser]
+    fn = SIZE_ESTIMATORS[name]
+    tracemalloc.start()
+    start = time.perf_counter()
+    errors = []
+    for seed, obj, depth, noise in _grid(fixtures, depths, noise_levels):
+        obs = synthesize(obj, depth, noise_frac=noise, seed=seed)
+        cues = engine.cues(obs)
+        est = fuse(cues, level)
+        dims = fn(obs, est["depth_m"], level)
+        errors += [percent_error(dims["w_mm"], obj["w_mm"]),
+                   percent_error(dims["h_mm"], obj["h_mm"])]
+    elapsed = (time.perf_counter() - start) * 1000.0
+    peak = tracemalloc.get_traced_memory()[1] / 1e6
+    tracemalloc.stop()
+    mape = sum(errors) / len(errors) if errors else 0.0
+    return {
+        "method": name, "mape": round(mape, 4), "coverage": 100.0,
+        "runtime_ms": round(elapsed, 2), "peak_mem_mb": round(peak, 3),
+        "score": round(_score(mape, 100.0, elapsed), 4),
+    }
+
+
 def evaluate_sizes(fixtures=None, depths=(1.0, 2.0, 3.0, 5.0),
                    noise_levels=(0.0, 0.02, 0.05), fuser="inverse_variance",
                    level=0.95, include_slow=False):
     fixtures = fixtures or PREMADE
-    engine = DepthEngine()
-    fuse = FUSERS[fuser]
-    results = []
-    for name, fn in SIZE_ESTIMATORS.items():
-        if name in SLOW_ESTIMATORS and not include_slow:
-            continue
-        tracemalloc.start()
-        start = time.perf_counter()
-        errors = []
-        for seed, obj, depth, noise in _grid(fixtures, depths, noise_levels):
-            obs = synthesize(obj, depth, noise_frac=noise, seed=seed)
-            cues = engine.cues(obs)
-            est = fuse(cues, level)
-            dims = fn(obs, est["depth_m"], level)
-            errors += [percent_error(dims["w_mm"], obj["w_mm"]),
-                       percent_error(dims["h_mm"], obj["h_mm"])]
-        elapsed = (time.perf_counter() - start) * 1000.0
-        peak = tracemalloc.get_traced_memory()[1] / 1e6
-        tracemalloc.stop()
-        mape = sum(errors) / len(errors) if errors else 0.0
-        results.append({
-            "method": name, "mape": round(mape, 4), "coverage": 100.0,
-            "runtime_ms": round(elapsed, 2), "peak_mem_mb": round(peak, 3),
-            "score": round(_score(mape, 100.0, elapsed), 4),
-        })
+    names = [n for n in SIZE_ESTIMATORS if include_slow or n not in SLOW_ESTIMATORS]
+    results = [eval_size(n, fixtures, depths, noise_levels, fuser, level) for n in names]
     return sorted(results, key=lambda r: r["score"])
 
 

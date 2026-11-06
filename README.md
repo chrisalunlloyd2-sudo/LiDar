@@ -53,6 +53,27 @@ Snipped (much worse than baseline, or more than 5× slower):
 The production pipeline already uses survivors: inverse-variance fusion,
 canonical 5 illusions, pixel-scale sizing, midpoint triangulation.
 
+## v2.3 — parallel arena + multi-view refinement
+
+`python3 -m arena.parallel_arena --workers 4` farms each fuser and size
+estimator to a process pool (threads are useless under the GIL). Quick arena:
+**525 ms vs 1,145 ms serial = 2.18×** on 4 workers.
+
+`python3 -m arena.multiview --views 15 --baseline 0.2 --noise 0.3 --depth 1.5`
+simulates 15 offset views and compares refinement strategies. The hard case is
+the 2×6's 38.1 mm height:
+
+| method | 2×6 height error |
+|--------|------------------|
+| temporal median | 2.370 % |
+| aligned corners | 0.907 % |
+| **3-D corner average** | **0.290 %** |
+| RANSAC triangulation | 1.391 % |
+
+3-D MAPE over all fixtures: **0.248 %**. The 3-D average triangulates each
+corner across every view pair, then averages before measuring — removing both
+the max/min order-statistic bias and the per-view noise.
+
 ## Hardware limits
 
 `python3 -m arena.hardware_probe --processes` measured on the Android 13 /
@@ -114,6 +135,8 @@ camera frame ──► browser canvas analysis ──► POST /api/observe
 | `arena/illusion_models.py` | none / canonical5 / extended10 |
 | `arena/triangulators.py` | 5 two-view triangulators |
 | `arena/arena.py` | rank every method, score, snip |
+| `arena/parallel_arena.py` | process-pool arena (GIL bypass) |
+| `arena/multiview.py` | temporal / aligned / 3-D multi-view refinement |
 | `arena/hardware_probe.py` | CPU/memory/GIL/fusion limits + budget |
 | `server.py` | stdlib `ThreadingHTTPServer` JSON API + page routes |
 | `gui_pages/` | shell + one fragment per page + `app.js` |
@@ -207,7 +230,7 @@ Open `http://<phone-ip>:8790` in Chrome. Allow camera + location + motion.
 
 ```bash
 cd ~/lidarv2
-python3 -m pytest tests -q      # 148 tests
+python3 -m pytest tests -q      # 159 tests
 ```
 
 ## Known limitations
