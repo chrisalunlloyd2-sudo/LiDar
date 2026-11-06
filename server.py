@@ -38,6 +38,8 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
 from accuracy import percent_error, run_benchmark  # noqa: E402
+from arena.arena import run_arena  # noqa: E402
+from arena.hardware_probe import probe as probe_hardware  # noqa: E402
 from depth_engine import DepthEngine  # noqa: E402
 from fit_engine import fit_cuboid, fit_rectangle, fit_observation  # noqa: E402
 from fixtures.premade_objects import by_tag, synthesize, truth_dims  # noqa: E402
@@ -273,6 +275,14 @@ class LidarHandler(BaseHTTPRequestHandler):
                 "illusions": [dict(e, severity=0.0) for e in ILLUSION_REGISTRY],
                 "note": "5 illusions + correction math; live severities appear on /api/observe",
             })
+        if path == "/api/hardware":
+            return self._send(200, probe_hardware(seconds=0.2))
+        if path == "/api/survivors":
+            surv = os.path.join(HERE, "arena_report_survivors.json")
+            if os.path.exists(surv):
+                with open(surv) as fh:
+                    return self._send(200, json.load(fh))
+            return self._send(200, {"keep": {}, "prune": {}})
         if path == "/api/map":
             q = parse_qs(parsed.query)
             points = self.server.store.list_map_points(
@@ -308,6 +318,8 @@ class LidarHandler(BaseHTTPRequestHandler):
                 return self._handle_premade(payload)
             if parsed.path == "/api/benchmark":
                 return self._handle_benchmark(payload)
+            if parsed.path == "/api/arena":
+                return self._send(200, run_arena(quick=True, top_k=3))
             if parsed.path == "/api/demo":
                 return self._handle_demo(payload)
             if parsed.path == "/api/reset":

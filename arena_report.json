@@ -1,0 +1,345 @@
+{
+  "fusers": [
+    {
+      "method": "cauchy",
+      "mape": 0.8159,
+      "coverage": 98.61,
+      "runtime_ms": 24.14,
+      "peak_mem_mb": 0.006,
+      "score": 0.8183
+    },
+    {
+      "method": "inverse_variance",
+      "mape": 0.8164,
+      "coverage": 100.0,
+      "runtime_ms": 34.44,
+      "peak_mem_mb": 0.009,
+      "score": 0.8199
+    },
+    {
+      "method": "tukey_biweight",
+      "mape": 0.8184,
+      "coverage": 98.61,
+      "runtime_ms": 24.08,
+      "peak_mem_mb": 0.006,
+      "score": 0.8208
+    },
+    {
+      "method": "student_t",
+      "mape": 0.8203,
+      "coverage": 97.22,
+      "runtime_ms": 23.67,
+      "peak_mem_mb": 0.006,
+      "score": 0.8226
+    },
+    {
+      "method": "huber",
+      "mape": 0.8248,
+      "coverage": 98.61,
+      "runtime_ms": 20.94,
+      "peak_mem_mb": 0.006,
+      "score": 0.8269
+    },
+    {
+      "method": "kalman",
+      "mape": 0.8634,
+      "coverage": 100.0,
+      "runtime_ms": 11.93,
+      "peak_mem_mb": 0.006,
+      "score": 0.8646
+    },
+    {
+      "method": "dempster_shafer",
+      "mape": 0.8634,
+      "coverage": 100.0,
+      "runtime_ms": 13.11,
+      "peak_mem_mb": 0.006,
+      "score": 0.8647
+    },
+    {
+      "method": "ransac",
+      "mape": 0.8634,
+      "coverage": 100.0,
+      "runtime_ms": 14.25,
+      "peak_mem_mb": 0.006,
+      "score": 0.8648
+    },
+    {
+      "method": "bayesian",
+      "mape": 0.864,
+      "coverage": 100.0,
+      "runtime_ms": 12.58,
+      "peak_mem_mb": 0.006,
+      "score": 0.8653
+    },
+    {
+      "method": "particle",
+      "mape": 0.8606,
+      "coverage": 100.0,
+      "runtime_ms": 684.43,
+      "peak_mem_mb": 0.032,
+      "score": 0.9291
+    },
+    {
+      "method": "weighted_mean",
+      "mape": 8.2412,
+      "coverage": 100.0,
+      "runtime_ms": 13.0,
+      "peak_mem_mb": 0.006,
+      "score": 8.2425
+    },
+    {
+      "method": "bootstrap",
+      "mape": 0.8521,
+      "coverage": 90.28,
+      "runtime_ms": 771.59,
+      "peak_mem_mb": 0.014,
+      "score": 10.3737
+    },
+    {
+      "method": "harmonic_mean",
+      "mape": 14.8734,
+      "coverage": 100.0,
+      "runtime_ms": 12.4,
+      "peak_mem_mb": 0.006,
+      "score": 14.8746
+    },
+    {
+      "method": "geometric_mean",
+      "mape": 19.3112,
+      "coverage": 100.0,
+      "runtime_ms": 12.0,
+      "peak_mem_mb": 0.006,
+      "score": 19.3124
+    },
+    {
+      "method": "trimmed_mean",
+      "mape": 25.9449,
+      "coverage": 100.0,
+      "runtime_ms": 13.04,
+      "peak_mem_mb": 0.006,
+      "score": 25.9462
+    },
+    {
+      "method": "winsorized",
+      "mape": 25.9449,
+      "coverage": 100.0,
+      "runtime_ms": 13.31,
+      "peak_mem_mb": 0.006,
+      "score": 25.9462
+    },
+    {
+      "method": "median",
+      "mape": 6.3473,
+      "coverage": 79.17,
+      "runtime_ms": 12.05,
+      "peak_mem_mb": 0.006,
+      "score": 38.0152
+    }
+  ],
+  "sizes": [
+    {
+      "method": "angular",
+      "mape": 0.8164,
+      "coverage": 100.0,
+      "runtime_ms": 29.15,
+      "peak_mem_mb": 0.006,
+      "score": 0.8193
+    },
+    {
+      "method": "similar_triangles",
+      "mape": 0.8164,
+      "coverage": 100.0,
+      "runtime_ms": 28.97,
+      "peak_mem_mb": 0.006,
+      "score": 0.8193
+    },
+    {
+      "method": "trig",
+      "mape": 0.8164,
+      "coverage": 100.0,
+      "runtime_ms": 29.51,
+      "peak_mem_mb": 0.006,
+      "score": 0.8194
+    },
+    {
+      "method": "pixel_scale",
+      "mape": 0.8164,
+      "coverage": 100.0,
+      "runtime_ms": 31.06,
+      "peak_mem_mb": 0.007,
+      "score": 0.8195
+    },
+    {
+      "method": "median_multi",
+      "mape": 0.8164,
+      "coverage": 100.0,
+      "runtime_ms": 34.84,
+      "peak_mem_mb": 0.006,
+      "score": 0.8199
+    },
+    {
+      "method": "homography",
+      "mape": 0.8164,
+      "coverage": 100.0,
+      "runtime_ms": 85.6,
+      "peak_mem_mb": 0.009,
+      "score": 0.825
+    },
+    {
+      "method": "cross_ratio",
+      "mape": 3.2387,
+      "coverage": 100.0,
+      "runtime_ms": 29.23,
+      "peak_mem_mb": 0.006,
+      "score": 3.2416
+    },
+    {
+      "method": "vanishing_point",
+      "mape": 3.3695,
+      "coverage": 100.0,
+      "runtime_ms": 28.46,
+      "peak_mem_mb": 0.006,
+      "score": 3.3723
+    },
+    {
+      "method": "weighted_multi",
+      "mape": 3.4904,
+      "coverage": 100.0,
+      "runtime_ms": 33.42,
+      "peak_mem_mb": 0.006,
+      "score": 3.4938
+    },
+    {
+      "method": "ground_plane",
+      "mape": 12.2608,
+      "coverage": 100.0,
+      "runtime_ms": 29.26,
+      "peak_mem_mb": 0.006,
+      "score": 12.2638
+    }
+  ],
+  "illusions": [
+    {
+      "method": "canonical5",
+      "mape": 15.0813,
+      "coverage": 100.0,
+      "runtime_ms": 37.84,
+      "peak_mem_mb": 0.007,
+      "score": 15.0851
+    },
+    {
+      "method": "none",
+      "mape": 18.6603,
+      "coverage": 100.0,
+      "runtime_ms": 30.28,
+      "peak_mem_mb": 0.007,
+      "score": 18.6633
+    },
+    {
+      "method": "extended10",
+      "mape": 27.9525,
+      "coverage": 100.0,
+      "runtime_ms": 49.82,
+      "peak_mem_mb": 0.008,
+      "score": 27.9575
+    }
+  ],
+  "triangulators": [
+    {
+      "method": "ransac",
+      "mape": 0.0,
+      "coverage": 100.0,
+      "runtime_ms": 7.3,
+      "peak_mem_mb": 0.002,
+      "score": 0.0007
+    },
+    {
+      "method": "midpoint",
+      "mape": 0.0,
+      "coverage": 100.0,
+      "runtime_ms": 12.6,
+      "peak_mem_mb": 0.003,
+      "score": 0.0013
+    },
+    {
+      "method": "least_squares",
+      "mape": 0.0,
+      "coverage": 100.0,
+      "runtime_ms": 1109.82,
+      "peak_mem_mb": 0.003,
+      "score": 0.111
+    },
+    {
+      "method": "parallax",
+      "mape": 0.6964,
+      "coverage": 100.0,
+      "runtime_ms": 6.59,
+      "peak_mem_mb": 0.001,
+      "score": 0.6971
+    },
+    {
+      "method": "weighted",
+      "mape": 5.0005,
+      "coverage": 100.0,
+      "runtime_ms": 8.46,
+      "peak_mem_mb": 0.001,
+      "score": 5.0013
+    }
+  ],
+  "survivors": {
+    "fusers": [
+      "cauchy",
+      "inverse_variance",
+      "tukey_biweight",
+      "student_t",
+      "huber"
+    ],
+    "sizes": [
+      "angular",
+      "similar_triangles",
+      "trig",
+      "pixel_scale",
+      "median_multi",
+      "homography"
+    ],
+    "illusions": [
+      "canonical5",
+      "none"
+    ],
+    "triangulators": [
+      "ransac",
+      "midpoint"
+    ]
+  },
+  "pruned": {
+    "fusers": [
+      "kalman",
+      "dempster_shafer",
+      "ransac",
+      "bayesian",
+      "particle",
+      "weighted_mean",
+      "bootstrap",
+      "harmonic_mean",
+      "geometric_mean",
+      "trimmed_mean",
+      "winsorized",
+      "median"
+    ],
+    "sizes": [
+      "cross_ratio",
+      "vanishing_point",
+      "weighted_multi",
+      "ground_plane"
+    ],
+    "illusions": [
+      "extended10"
+    ],
+    "triangulators": [
+      "least_squares",
+      "parallax",
+      "weighted"
+    ]
+  }
+}

@@ -24,6 +24,54 @@ Pure Python stdlib. No pip installs, no neural weights, no external services.
 - **mmap modular GUI** (`page_store.py` + `gui_pages/`): the shell loads one
   fragment per page from `/page/<name>`.
 
+## v2.2 — push the boundaries, then snip
+
+`arena/` deliberately over-develops the math: **17 depth fusers**, **11 size
+estimators**, **3 illusion models** (none / canonical5 / extended10) and **5
+triangulators**. `python3 -m arena.arena` benchmarks every method across the
+premade fixtures, ranks by MAPE (accuracy first), and writes
+`arena_report.json` + `arena_report_survivors.json`.
+
+Arena winners (kept):
+
+| stage | survivors |
+|-------|-----------|
+| fusers | cauchy · inverse_variance · tukey_biweight · student_t · huber |
+| sizes | angular · similar_triangles · trig · pixel_scale · median_multi · homography |
+| illusions | canonical5 · none |
+| triangulators | ransac · midpoint |
+
+Snipped (much worse than baseline, or more than 5× slower):
+
+| stage | pruned |
+|-------|--------|
+| fusers | kalman · dempster_shafer · ransac · bayesian · particle · weighted_mean · bootstrap · harmonic_mean · geometric_mean · trimmed_mean · winsorized · median |
+| sizes | cross_ratio · vanishing_point · weighted_multi · ground_plane |
+| illusions | extended10 (over-corrects: 27.9 % vs 15.1 % MAPE) |
+| triangulators | least_squares (1.1 s) · parallax · weighted |
+
+The production pipeline already uses survivors: inverse-variance fusion,
+canonical 5 illusions, pixel-scale sizing, midpoint triangulation.
+
+## Hardware limits
+
+`python3 -m arena.hardware_probe --processes` measured on the Android 13 /
+armv8l 32-bit device:
+
+| metric | value |
+|--------|-------|
+| cores | 8 |
+| RAM | 3.6 GB total / ~575 MB available |
+| single-core | ~0.5–0.66 M ops/s |
+| thread scaling | 0.54–0.87× (GIL-bound) |
+| process scaling | 1.52× |
+| fusion throughput | ~3.6–4.0 k/s |
+| fusion peak memory | ~0.001 MB |
+
+Budget: `recommended_threads = 1`, `recommended_processes = 8`,
+`gil_bound = true` — use processes (or native code) for parallel work, not
+Python threads.
+
 ## Architecture
 
 ```
@@ -61,6 +109,12 @@ camera frame ──► browser canvas analysis ──► POST /api/observe
 | `inventory.py` | physical tag catalog, dimension matching, emulated dimensions |
 | `store.py` | SQLite map points + aggregated inventory |
 | `page_store.py` | **mmap** page store for the modular GUI |
+| `arena/depth_fusers.py` | 17 depth-fusion algorithms |
+| `arena/size_estimators.py` | 11 size estimators |
+| `arena/illusion_models.py` | none / canonical5 / extended10 |
+| `arena/triangulators.py` | 5 two-view triangulators |
+| `arena/arena.py` | rank every method, score, snip |
+| `arena/hardware_probe.py` | CPU/memory/GIL/fusion limits + budget |
 | `server.py` | stdlib `ThreadingHTTPServer` JSON API + page routes |
 | `gui_pages/` | shell + one fragment per page + `app.js` |
 
@@ -135,6 +189,9 @@ Open `http://<phone-ip>:8790` in Chrome. Allow camera + location + motion.
 | GET | `/api/health` | — | status + db + page count |
 | GET | `/api/config` | — | version + tag catalog |
 | GET | `/api/illusions` | — | the 5-illusion registry |
+| GET | `/api/hardware` | — | CPU/mem/GIL/fusion limits |
+| GET | `/api/survivors` | — | arena keep/prune |
+| POST | `/api/arena` | `{}` | run the quick arena |
 | POST | `/api/observe` | observation JSON | depth+CI, 5 illusions, geo, item |
 | POST | `/api/scan` | intrinsics + pose + grid | ground point cloud |
 | POST | `/api/fit` | `corners_px`, `depth_m`, `kind` | rectangle/cuboid fit |
@@ -150,7 +207,7 @@ Open `http://<phone-ip>:8790` in Chrome. Allow camera + location + motion.
 
 ```bash
 cd ~/lidarv2
-python3 -m pytest tests -q      # 129 tests
+python3 -m pytest tests -q      # 148 tests
 ```
 
 ## Known limitations

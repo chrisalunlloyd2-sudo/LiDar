@@ -1,0 +1,29 @@
+{
+  "platform": "Android-13-armv8l-32bit",
+  "python": "3.14.8",
+  "cpu_count": 8,
+  "cpu_model": "ARMv8 Processor rev 0 (v8l)",
+  "mem_total_mb": 3616.9,
+  "mem_available_mb": 574.6,
+  "single_core_ops_per_sec": 475345.5,
+  "multi_core_ops_per_sec": 257604.0,
+  "thread_scaling": 0.542,
+  "process_ops_per_sec": 720165.0,
+  "process_scaling": 1.515,
+  "process_stress": {
+    "workers": 8,
+    "elapsed_s": 1.224,
+    "iterations": 881462,
+    "ops_per_sec": 720165.0
+  },
+  "fusion_ops_per_sec": 3640.1,
+  "fusion_peak_mem_mb": 0.0009,
+  "budget": {
+    "max_fusions_per_second": 3640,
+    "max_arena_evals_per_second": 1820,
+    "memory_headroom_mb": 143.7,
+    "recommended_threads": 1,
+    "recommended_processes": 8,
+    "gil_bound": true
+  }
+}

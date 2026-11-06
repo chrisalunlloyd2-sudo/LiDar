@@ -150,7 +150,8 @@ class TestServer(unittest.TestCase):
     def test_pages_listed(self):
         status, body = request_json(self.base, "GET", "/api/pages")
         self.assertEqual(status, 200)
-        for name in ("shell.html", "app.js", "controls.html", "measure.html"):
+        for name in ("shell.html", "app.js", "controls.html", "measure.html",
+                     "arena.html", "hardware.html"):
             self.assertIn(name, body["pages"])
 
     def test_page_fragment_served(self):
@@ -237,6 +238,27 @@ class TestServer(unittest.TestCase):
         self.assertEqual(len(body["results"]), 6)
         self.assertIn("mean_mape_pct", body)
         self.assertIn("coverage_w_pct", body)
+
+    def test_hardware_endpoint(self):
+        status, body = request_json(self.base, "GET", "/api/hardware")
+        self.assertEqual(status, 200)
+        self.assertIn("cpu_count", body)
+        self.assertIn("fusion_ops_per_sec", body)
+        self.assertIn("budget", body)
+
+    def test_arena_endpoint(self):
+        status, body = request_json(self.base, "POST", "/api/arena", {})
+        self.assertEqual(status, 200)
+        for stage in ("fusers", "sizes", "illusions", "triangulators"):
+            self.assertIn(stage, body)
+            self.assertIn(stage, body["survivors"])
+            self.assertIn(stage, body["pruned"])
+
+    def test_survivors_endpoint(self):
+        status, body = request_json(self.base, "GET", "/api/survivors")
+        self.assertEqual(status, 200)
+        self.assertIn("keep", body)
+        self.assertIn("prune", body)
 
 
 if __name__ == "__main__":

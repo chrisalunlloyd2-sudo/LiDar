@@ -1,0 +1,57 @@
+{
+  "keep": {
+    "fusers": [
+      "cauchy",
+      "inverse_variance",
+      "tukey_biweight",
+      "student_t",
+      "huber"
+    ],
+    "sizes": [
+      "angular",
+      "similar_triangles",
+      "trig",
+      "pixel_scale",
+      "median_multi",
+      "homography"
+    ],
+    "illusions": [
+      "canonical5",
+      "none"
+    ],
+    "triangulators": [
+      "ransac",
+      "midpoint"
+    ]
+  },
+  "prune": {
+    "fusers": [
+      "kalman",
+      "dempster_shafer",
+      "ransac",
+      "bayesian",
+      "particle",
+      "weighted_mean",
+      "bootstrap",
+      "harmonic_mean",
+      "geometric_mean",
+      "trimmed_mean",
+      "winsorized",
+      "median"
+    ],
+    "sizes": [
+      "cross_ratio",
+      "vanishing_point",
+      "weighted_multi",
+      "ground_plane"
+    ],
+    "illusions": [
+      "extended10"
+    ],
+    "triangulators": [
+      "least_squares",
+      "parallax",
+      "weighted"
+    ]
+  }
+}

@@ -21,7 +21,8 @@ const PRESETS = [
   ["cube_100", 100.0], ["rect_200x100", 200.0], ["custom", 88.9],
 ];
 
-const PAGES = ["controls", "camera", "measure", "geo", "map", "inventory", "illusions", "settings"];
+const PAGES = ["controls", "camera", "measure", "geo", "map", "inventory",
+               "illusions", "arena", "hardware", "settings"];
 
 // ── modular page loading (mmap-backed fragments) ──────────────────────
 async function loadPages() {
@@ -542,6 +543,38 @@ async function runBenchmark() {
   } catch (e) { setStatus("benchmark failed: " + e.message, "err"); }
 }
 
+async function runArena() {
+  setStatus("Running arena…");
+  try {
+    const res = await fetch("/api/arena", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+    });
+    const d = await res.json();
+    if (!res.ok || d.error) { setStatus(d.error || "arena failed", "err"); return; }
+    const fmt = (obj) => Object.entries(obj).map(([k, v]) => `${k}: ${v.join(", ")}`).join(" | ");
+    $("arenaKeep").textContent = fmt(d.survivors);
+    $("arenaPrune").textContent = fmt(d.pruned);
+    $("arenaDetail").textContent =
+      "Accuracy leaders kept; slower or worse-than-baseline methods pruned.";
+    setStatus("Arena done — survivors/pruned updated.", "ok");
+  } catch (e) { setStatus("arena failed: " + e.message, "err"); }
+}
+
+async function probeHw() {
+  setStatus("Probing hardware…");
+  try {
+    const d = await (await fetch("/api/hardware")).json();
+    $("hwCpu").textContent = `${d.cpu_count} cores · ${d.cpu_model}`;
+    $("hwThread").textContent = d.thread_scaling;
+    $("hwProc").textContent = d.process_scaling == null ? "n/a" : d.process_scaling;
+    $("hwFusion").textContent = d.fusion_ops_per_sec;
+    $("hwDetail").textContent = `GIL-bound: ${d.budget.gil_bound} · threads `
+      + `${d.budget.recommended_threads} · processes ${d.budget.recommended_processes} · `
+      + `${d.fusion_peak_mem_mb} MB peak`;
+    setStatus("Hardware probe done.", "ok");
+  } catch (e) { setStatus("hardware failed: " + e.message, "err"); }
+}
+
 async function resetAll() {
   try {
     await fetch("/api/reset", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
@@ -568,6 +601,8 @@ function bindButtons() {
   $("btnPremade").onclick = runPremade;
   $("btnDemo").onclick = seedDemo;
   $("btnBench").onclick = runBenchmark;
+  if ($("btnArena")) $("btnArena").onclick = runArena;
+  if ($("btnHw")) $("btnHw").onclick = probeHw;
   $("btnReset").onclick = resetAll;
 }
 
