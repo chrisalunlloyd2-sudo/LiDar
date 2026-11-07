@@ -151,7 +151,7 @@ class TestServer(unittest.TestCase):
         status, body = request_json(self.base, "GET", "/api/pages")
         self.assertEqual(status, 200)
         for name in ("shell.html", "app.js", "controls.html", "measure.html",
-                     "arena.html", "hardware.html"):
+                     "plan.html", "arena.html", "hardware.html"):
             self.assertIn(name, body["pages"])
 
     def test_page_fragment_served(self):
@@ -259,6 +259,29 @@ class TestServer(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("keep", body)
         self.assertIn("prune", body)
+
+    def test_plan_endpoint(self):
+        status, body = request_json(self.base, "POST", "/api/plan", {
+            "depth_m": 1.5, "budget": 6, "tag": "2x6",
+            "intrinsics": {"f_px": 554.256, "cx": 320.0, "cy": 240.0,
+                           "image_w": 640, "image_h": 480, "fov_deg": 60.0},
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(body["tag"], "2x6")
+        self.assertEqual(body["budget"], 6)
+        self.assertEqual(len(body["offsets_m"]), 6)
+        self.assertEqual(len(body["steps"]), 6)
+        self.assertGreater(body["fov_cap_m"], 0.0)
+        self.assertLessEqual(max(abs(b) for b in body["offsets_m"]),
+                             body["fov_cap_m"] + 1e-6)
+        self.assertGreater(body["predicted_error_pct"], 0.0)
+        self.assertEqual(len(body["acquisition_order_m"]), 6)
+
+    def test_plan_rejects_non_positive_depth(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            request_json(self.base, "POST", "/api/plan", {"depth_m": 0.0})
+        self.assertEqual(ctx.exception.code, 422)
+        ctx.exception.close()
 
 
 if __name__ == "__main__":

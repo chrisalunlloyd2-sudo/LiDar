@@ -1,0 +1,20 @@
+<div class="card">
+  <h2>Active view plan</h2>
+  <div class="kv">
+    <span>budget</span>
+    <span>
+      <select id="planBudget" style="background:#0b1220;color:var(--ink);border:1px solid #24344f;border-radius:4px;padding:3px 6px;font-size:12px;font-family:inherit">
+        <option>2</option><option>3</option><option selected>6</option><option>8</option><option>10</option>
+      </select>
+    </span>
+  </div>
+  <button class="btn" id="btnPlan">Plan views</button>
+  <div class="kv"><span>visible arc</span><span id="planCap">—</span></div>
+  <div class="kv"><span>offsets</span><span id="planOffsets">—</span></div>
+  <div class="kv"><span>predicted 1σ</span><span id="planPred">—</span></div>
+  <div class="kv"><span>visit order</span><span id="planOrder">—</span></div>
+  <div class="muted" id="planDetail" style="margin-top:6px">
+    Even coverage of the arc the camera can actually see — derived from the
+    intrinsics and the current depth estimate.
+  </div>
+</div>

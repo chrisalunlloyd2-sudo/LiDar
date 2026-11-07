@@ -22,7 +22,7 @@ const PRESETS = [
 ];
 
 const PAGES = ["controls", "camera", "measure", "geo", "map", "inventory",
-               "illusions", "arena", "hardware", "settings"];
+               "illusions", "plan", "arena", "hardware", "settings"];
 
 // ── modular page loading (mmap-backed fragments) ──────────────────────
 async function loadPages() {
@@ -543,6 +543,32 @@ async function runBenchmark() {
   } catch (e) { setStatus("benchmark failed: " + e.message, "err"); }
 }
 
+async function runPlan() {
+  const depth = state.lastResult ? state.lastResult.estimate.depth_m : 2.0;
+  const budget = parseInt($("planBudget").value, 10) || 6;
+  try {
+    const res = await fetch("/api/plan", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        depth_m: depth, budget: budget, tag: $("preset").value,
+        intrinsics: state.intrinsics || makeIntrinsics(720, 1280, 60),
+        sigma_px: 0.3,
+      }),
+    });
+    const d = await res.json();
+    if (!res.ok || d.error) { setStatus(d.error || "plan failed", "err"); return; }
+    const mm = (v) => (v >= 0 ? "+" : "") + (v * 100).toFixed(0) + " cm";
+    $("planCap").textContent = `± ${(d.fov_cap_m * 100).toFixed(0)} cm`;
+    $("planOffsets").textContent = d.offsets_m.map(mm).join("  ");
+    $("planPred").textContent = `${d.predicted_error_pct.toFixed(2)} % height`;
+    $("planOrder").textContent = d.acquisition_order_m.map(mm).join(" → ");
+    $("planDetail").textContent =
+      `${d.budget} views at ${d.depth_m.toFixed(2)} m · span ${(d.span_m * 100).toFixed(0)} cm`
+      + ` · information ${d.information_score.toFixed(3)}`;
+    setStatus(`View plan ready — ${d.budget} views inside the visible arc.`, "ok");
+  } catch (e) { setStatus("plan failed: " + e.message, "err"); }
+}
+
 async function runArena() {
   setStatus("Running arena…");
   try {
@@ -602,6 +628,7 @@ function bindButtons() {
   $("btnDemo").onclick = seedDemo;
   $("btnBench").onclick = runBenchmark;
   if ($("btnArena")) $("btnArena").onclick = runArena;
+  if ($("btnPlan")) $("btnPlan").onclick = runPlan;
   if ($("btnHw")) $("btnHw").onclick = probeHw;
   $("btnReset").onclick = resetAll;
 }

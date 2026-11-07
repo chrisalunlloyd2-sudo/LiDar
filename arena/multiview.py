@@ -19,7 +19,15 @@ from arena.triangulators import TRIANGULATORS
 from fixtures.premade_objects import PREMADE
 from geospatial import enu_to_geodetic
 from models import CameraIntrinsics, CameraPose
-from triangulate import enu_direction_to_pixel, triangulate_point
+from triangulate import (
+    enu_direction_to_pixel,
+    geodetic_to_enu,
+    triangulate_point,
+)
+
+MIN_PAIR_BASELINE_M = 0.02
+MAX_PAIR_RESIDUAL_M = 0.05
+DEPTH_PLAUSIBLE_M = (0.2, 20.0)
 
 
 def simulate_views(obj, depth_m=1.5, n_views=9, baseline_m=0.2, noise_px=0.3,
@@ -94,6 +102,32 @@ def refine_aligned(views, obj_w_mm, depth_m):
             "n": len(views), "method": "aligned"}
 
 
+def pair_is_usable(pose_a, pose_b, pts):
+    """Reject a view pair before it can poison the 3-D average.
+
+    Two views taken from almost the same spot give a near-singular ray
+    intersection: `denom` is tiny but not zero, so the midpoint lands far away
+    and a single pair can drag the average and collapse the measured size. A
+    pair is usable only when the baseline is real, every corner triangulates
+    inside the plausible depth range, the rays actually meet, and both views
+    agree on each corner's depth.
+    """
+    dx, dy, dz = geodetic_to_enu(pose_a.lat, pose_a.lon, pose_a.alt_m,
+                                 pose_b.lat, pose_b.lon, pose_b.alt_m)
+    if math.sqrt(dx * dx + dy * dy + dz * dz) < MIN_PAIR_BASELINE_M:
+        return False
+    lo, hi = DEPTH_PLAUSIBLE_M
+    for p in pts:
+        if p is None or p["residual_m"] > MAX_PAIR_RESIDUAL_M:
+            return False
+        d1, d2 = p["depth1_m"], p["depth2_m"]
+        if not (lo <= d1 <= hi and lo <= d2 <= hi):
+            return False
+        if abs(d1 - d2) > 0.2 * (d1 + d2) / 2.0:
+            return False
+    return True
+
+
 def refine_3d(views, method="ransac"):
     """Average each corner's 3-D position across all view pairs, then measure."""
     n = 4
@@ -110,6 +144,8 @@ def refine_3d(views, method="ransac"):
                     break
                 pts.append(p)
             if len(pts) < n:
+                continue
+            if not pair_is_usable(views[i]["pose"], views[j]["pose"], pts):
                 continue
             for k in range(n):
                 acc[k][0] += pts[k]["east_m"]
@@ -159,12 +195,15 @@ def _errors(est, obj):
 
 
 def run_multiview_benchmark(n_views=9, baseline_m=0.2, noise_px=0.3,
-                            depth_m=1.5, method="ransac", fixtures=None):
+                            depth_m=1.5, method="ransac", fixtures=None,
+                            seed=0):
+    """One noise draw. Seed 0 reproduces v2.3; sweep seeds for a median."""
     results = []
     temporal_errors, triangulated_errors, aligned_errors, three_d_errors = [], [], [], []
     for obj in (fixtures or PREMADE):
         views = simulate_views(obj, depth_m=depth_m, n_views=n_views,
-                               baseline_m=baseline_m, noise_px=noise_px)
+                               baseline_m=baseline_m, noise_px=noise_px,
+                               seed=seed)
         if not views:
             continue
         temporal = refine_temporal(views, obj["w_mm"], depth_m)
@@ -203,7 +242,8 @@ def run_multiview_benchmark(n_views=9, baseline_m=0.2, noise_px=0.3,
         })
     return {
         "config": {"n_views": n_views, "baseline_m": baseline_m,
-                   "noise_px": noise_px, "depth_m": depth_m, "method": method},
+                   "noise_px": noise_px, "depth_m": depth_m, "method": method,
+                   "seed": seed},
         "results": results,
         "temporal_mape_pct": round(sum(temporal_errors) / len(temporal_errors), 3)
         if temporal_errors else None,
@@ -229,12 +269,13 @@ def main(argv=None):
     parser.add_argument("--noise", type=float, default=0.3)
     parser.add_argument("--depth", type=float, default=1.5)
     parser.add_argument("--method", default="ransac")
+    parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--json", default="multiview_report.json")
     args = parser.parse_args(argv)
 
     report = run_multiview_benchmark(
         n_views=args.views, baseline_m=args.baseline, noise_px=args.noise,
-        depth_m=args.depth, method=args.method)
+        depth_m=args.depth, method=args.method, seed=args.seed)
     print("config:", json.dumps(report["config"]))
     print("  %-12s %14s %14s %14s %14s %14s"
           % ("tag", "truth mm", "temporal", "aligned", "3d-avg", "triangulated"))

@@ -15,6 +15,7 @@ Serves an mmap-backed modular GUI and a JSON API:
   POST /api/triangulate     two-view triangulation (point or size)
   POST /api/premade         emulate a known premade object, report % error
   POST /api/benchmark       MAPE + CI coverage over all premade fixtures
+  POST /api/plan            active view plan for a budget (FOV-capped)
   POST /api/demo            seed a synthetic room
   GET  /api/map             accepted map points
   GET  /api/inventory       tagged inventory + summary
@@ -40,6 +41,7 @@ if HERE not in sys.path:
 from accuracy import percent_error, run_benchmark  # noqa: E402
 from arena.arena import run_arena  # noqa: E402
 from arena.hardware_probe import probe as probe_hardware  # noqa: E402
+from arena.planner import DEFAULT_SIGMA_PX, plan_views  # noqa: E402
 from depth_engine import DepthEngine  # noqa: E402
 from fit_engine import fit_cuboid, fit_rectangle, fit_observation  # noqa: E402
 from fixtures.premade_objects import by_tag, synthesize, truth_dims  # noqa: E402
@@ -58,7 +60,7 @@ from shapes import classify_shape  # noqa: E402
 from store import Store  # noqa: E402
 from triangulate import triangulate_point, triangulate_size  # noqa: E402
 
-VERSION = "2.1.0"
+VERSION = "2.4.0"
 GUI_DIR = os.path.join(HERE, "gui_pages")
 _DEFAULT_INTR = CameraIntrinsics.from_fov(720, 1280, 60.0)
 
@@ -320,6 +322,8 @@ class LidarHandler(BaseHTTPRequestHandler):
                 return self._handle_benchmark(payload)
             if parsed.path == "/api/arena":
                 return self._send(200, run_arena(quick=True, top_k=3))
+            if parsed.path == "/api/plan":
+                return self._handle_plan(payload)
             if parsed.path == "/api/demo":
                 return self._handle_demo(payload)
             if parsed.path == "/api/reset":
@@ -434,6 +438,29 @@ class LidarHandler(BaseHTTPRequestHandler):
             intrinsics=parse_intrinsics(payload) if payload.get("intrinsics") else None,
         )
         return self._send(200, report)
+
+    def _handle_plan(self, payload):
+        raw_depth = _opt_float(payload.get("depth_m"))
+        depth_m = 2.0 if raw_depth is None else raw_depth
+        if depth_m <= 0:
+            return self._send(422, {"error": "depth_m must be positive"})
+        budget = max(1, min(16, int(payload.get("budget") or 6)))
+        tag = str(payload.get("tag") or "")
+        obj = by_tag(tag) if tag else None
+        w_mm = _opt_float(payload.get("object_w_mm"))
+        h_mm = _opt_float(payload.get("object_h_mm"))
+        if obj is not None:
+            w_mm = obj["w_mm"] if w_mm is None else w_mm
+            h_mm = obj["h_mm"] if h_mm is None else h_mm
+        plan = plan_views(
+            parse_intrinsics(payload), depth_m, budget,
+            object_w_mm=w_mm or 0.0,
+            object_h_mm=h_mm or 88.9,
+            sigma_px=float(payload.get("sigma_px") or DEFAULT_SIGMA_PX),
+        )
+        plan["tag"] = obj["tag"] if obj is not None else None
+        plan["depth_m"] = depth_m
+        return self._send(200, plan)
 
     def _handle_demo(self, payload):
         intr = parse_intrinsics(payload)

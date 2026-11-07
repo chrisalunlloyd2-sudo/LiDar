@@ -67,12 +67,67 @@ the 2×6's 38.1 mm height:
 |--------|------------------|
 | temporal median | 2.370 % |
 | aligned corners | 0.907 % |
-| **3-D corner average** | **0.290 %** |
+| **3-D corner average** | **0.358 %** (seed 0) |
 | RANSAC triangulation | 1.391 % |
 
-3-D MAPE over all fixtures: **0.248 %**. The 3-D average triangulates each
-corner across every view pair, then averages before measuring — removing both
-the max/min order-statistic bias and the per-view noise.
+3-D MAPE over all fixtures: **0.317 %** at seed 0. The 3-D average triangulates
+each corner across every view pair, then averages before measuring — removing
+both the max/min order-statistic bias and the per-view noise.
+
+That table is **one noise draw**, and a lucky one: over 16 seeds the same
+configuration gives a median 2×6-height error of **0.747 %** (p90 1.498 %,
+3-D MAPE median 0.583 %). v2.4 therefore reports medians over seeds rather
+than a single draw, and adds a pair guard that drops degenerate view pairs
+before they can drag the average (`pair_is_usable`).
+
+## v2.4 — active view planning (where to stand)
+
+v2.3 fused a *fixed* set of views. v2.4 asks the prior question: which lateral
+offsets can the camera actually observe, and which of them should it visit?
+
+`fov_cap_m` derives the visible arc from the intrinsics, the depth and the
+object width. For a 2×6 at 1.5 m with a 60° FOV it is **±0.692 m** — the v2.3
+sweep used offsets out to 2.8 m, where the object is far outside the image.
+`simulate_offset_view` drops any view whose corners leave the frame, so a view
+you cannot take no longer counts.
+
+`python3 -m arena.planner --seeds 16` compares four placement strategies at
+equal budgets and reports the median over 16 noise draws. 2×6 height error:
+
+| strategy | 2 views | 4 views | 6 views | 8 views | views to ≤0.75 % |
+|----------|---------|---------|---------|---------|------------------|
+| **even arc** | **1.804 %** | **1.186 %** | **0.780 %** | **0.702 %** | **8** |
+| alternating extremes | 1.738 % | 1.582 % | 0.845 % | 0.731 % | 8 |
+| random offsets | 5.230 % | 2.051 % | 0.987 % | 0.761 % | never |
+| anchor only | — | — | — | — | never |
+
+All-fixture MAPE for the even arc: 0.709 / 0.451 / 0.330 / 0.332 %. Two
+findings matter:
+
+- **Coverage beats one long baseline.** Under multi-view averaging the error is
+  driven by the spread of the offsets. Alternating the two extremes wastes
+  views on near-duplicate baselines (33 % worse at 4 views), and random
+  placement clusters by chance — up to 73 % worse than an even arc at 4 views,
+  still behind at 8.
+- **Zero baseline cannot triangulate at all.** Repeating the anchor view leaves
+  the ray intersection singular — every anchor-only cell fails to solve.
+
+The planner also predicts the error before measuring it. With `n` views at
+offsets `b_i`, depth `z`, focal `f` and pixel noise `sigma_px`:
+
+```
+pixel  = 100 * 1.1 * sigma_px / (h_px * sqrt(n))
+triang = 100 * 1.7 * sigma_z / z,   sigma_z = z^2 * (sigma_px/f) / sqrt(sum b_i^2)
+error% = hypot(pixel, triang)
+```
+
+The two constants were fitted over 90 plan/fixture/budget combinations.
+On the benchmark the realised/predicted ratio has median **0.934** and rms
+log-ratio **0.127** — the model is calibrated, and `/api/plan` reports it per
+view so the frontend can show the expected improvement before you move.
+
+Views are acquired from the inside out (`acquisition_order`), so an early stop
+after two or three views still carries most of the information.
 
 ## Hardware limits
 
@@ -137,6 +192,7 @@ camera frame ──► browser canvas analysis ──► POST /api/observe
 | `arena/arena.py` | rank every method, score, snip |
 | `arena/parallel_arena.py` | process-pool arena (GIL bypass) |
 | `arena/multiview.py` | temporal / aligned / 3-D multi-view refinement |
+| `arena/planner.py` | FOV-capped active view planning + strategy benchmark |
 | `arena/hardware_probe.py` | CPU/memory/GIL/fusion limits + budget |
 | `server.py` | stdlib `ThreadingHTTPServer` JSON API + page routes |
 | `gui_pages/` | shell + one fragment per page + `app.js` |
@@ -201,6 +257,8 @@ Open `http://<phone-ip>:8790` in Chrome. Allow camera + location + motion.
 5. **Scan ground** sweeps a ground-plane grid into the local ENU map.
 6. **Premade object** emulates a known fixture and reports its % error.
 7. **Benchmark** reports the MAPE over all fixtures.
+8. **Plan views** derives the visible arc from the current depth and lists the
+   offsets to visit plus the predicted error after each one.
 
 ## API
 
@@ -221,6 +279,7 @@ Open `http://<phone-ip>:8790` in Chrome. Allow camera + location + motion.
 | POST | `/api/triangulate` | `pose1/pose2`, `uv1/uv2` or `corners1/2` | point / size |
 | POST | `/api/premade` | `{tag, depth_m}` | emulated vs truth + error % |
 | POST | `/api/benchmark` | `{depth_m, noise_frac}` | MAPE + coverage |
+| POST | `/api/plan` | `{depth_m, budget, tag, sigma_px}` | FOV cap + offsets + predicted error per view |
 | POST | `/api/demo` | `{room}` | seeded inventory |
 | GET | `/api/map` | `?room=&tag=&limit=` | accepted map points |
 | GET | `/api/inventory` | `?room=&tag=` | items + summary |
@@ -230,7 +289,7 @@ Open `http://<phone-ip>:8790` in Chrome. Allow camera + location + motion.
 
 ```bash
 cd ~/lidarv2
-python3 -m pytest tests -q      # 159 tests
+python3 -m pytest tests -q      # 183 tests
 ```
 
 ## Known limitations
