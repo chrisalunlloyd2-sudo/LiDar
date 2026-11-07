@@ -239,7 +239,7 @@ depth CI of `[1.878, 2.123] m` at 2 m. Use `noise_frac` to stress the estimator.
 ## Run
 
 ```bash
-cd ~/lidarv2
+cd ~/LiDar
 python3 server.py                 # http://0.0.0.0:8790, db ./lidarv2.db
 # or
 python3 server.py --memory --port 8790
@@ -288,7 +288,7 @@ Open `http://<phone-ip>:8790` in Chrome. Allow camera + location + motion.
 ## Tests
 
 ```bash
-cd ~/lidarv2
+cd ~/LiDar
 python3 -m pytest tests -q      # 183 tests
 ```
 
