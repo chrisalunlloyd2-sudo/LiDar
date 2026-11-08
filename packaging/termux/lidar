@@ -1,0 +1,7 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# Launcher installed by the lidar .deb — starts the mmap GUI + JSON API.
+set -e
+DIR="${LIDAR_HOME:-${PREFIX:-/data/data/com.termux/files/usr}/share/lidar}"
+mkdir -p "${HOME}/.lidar"
+cd "$DIR"
+exec python3 server.py --db "${HOME}/.lidar/lidarv2.db" "$@"

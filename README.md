@@ -312,6 +312,32 @@ mean MAPE 0.446 % · max error 2.887 % · CI coverage 100 % / 100 %
 The premade 2×4 emulates to **88.9 × 38.1 × 38.1 mm at 0.0 % error** with a
 depth CI of `[1.878, 2.123] m` at 2 m. Use `noise_frac` to stress the estimator.
 
+## Install on Termux
+
+```bash
+pkg install -y python curl
+curl -fsSL https://raw.githubusercontent.com/chrisalunlloyd2-sudo/LiDar/main/scripts/termux-install.sh | bash
+lidar                  # GUI + API on http://127.0.0.1:8790
+```
+
+The installer downloads the latest release `.deb`, verifies it against the
+published `SHA256SUMS`, and installs it with `pkg`. `lidar --memory` uses a
+throwaway database; the default lives in `~/.lidar/lidarv2.db`.
+
+Manual route if you prefer to see every step:
+
+```bash
+curl -fsSLO https://github.com/chrisalunlloyd2-sudo/LiDar/releases/latest/download/lidar_2.5.1_all.deb
+curl -fsSLO https://github.com/chrisalunlloyd2-sudo/LiDar/releases/latest/download/SHA256SUMS
+sha256sum -c SHA256SUMS --ignore-missing
+pkg install -y ./lidar_2.5.1_all.deb
+```
+
+Build the package yourself with `bash scripts/build_termux_package.sh` — it
+writes `lidar_<version>_all.deb`, a tarball and checksums into `dist/`
+(`Architecture: all`, `Depends: python`). Remove it with `pkg uninstall lidar`;
+your database in `~/.lidar/` is left alone.
+
 ## Run
 
 ```bash

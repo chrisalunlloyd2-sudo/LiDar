@@ -22,6 +22,9 @@ venv/
 # ── Secret-scan output (runtime) ───────────────────────
 .scan_*
 
+# ── Built install packages ─────────────────────────────
+dist/
+
 # ── OS / editor ─────────────────────────────────────────
 .DS_Store
 *.swp

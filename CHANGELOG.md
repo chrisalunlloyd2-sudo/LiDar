@@ -7,8 +7,21 @@ medians over noise seeds, with `n` stated; a single draw is always labelled.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.5.1] — 2026-11-08
+
 ### Added
 
+- **Termux install package.** `scripts/build_termux_package.sh` produces
+  `dist/lidar_<version>_all.deb` (`Architecture: all`, `Depends: python`), a
+  matching tarball and `SHA256SUMS`.
+- `lidar` launcher installed to `$PREFIX/bin`; it keeps the database in
+  `~/.lidar/lidarv2.db` instead of the read-only package tree.
+- `scripts/termux-install.sh`: fetches the latest release, verifies the `.deb`
+  against the published checksums, installs it with `pkg`, and prints the
+  uninstall line. Also accepts a local `.deb` path.
+- `server.py --version`.
 - `scripts/flash_calibrate.py`: `--sweep` checks the gauge at 0.5–4 m and
   whether one calibration transfers; `--grids` analyses a captured pair and
   returns a health verdict plus the suggested `k`.
@@ -18,9 +31,8 @@ medians over noise seeds, with `n` stated; a single draw is always labelled.
   with the CLI.
 - `CALIBRATION.md`: healthy windows, synthetic sweep tables, device procedure
   and a failure-mode matrix.
-- `POST /api/flash/calibrate`: the card now asks the backend for a verdict
-  before ranging and shows `status · centre DN · k`; a dark pair is refused
-  instead of solved.
+- `POST /api/flash/calibrate`: the card asks the backend for a verdict before
+  ranging and shows `status · centre DN · k`; a dark pair is refused.
 - **Locked `k`**: after the first ping the gauge constant can be kept, so the
   1.0 → 1.5 → 2.0 → 3.0 m pass measures transfer instead of re-anchoring and
   reading ~0 % every time. *Recalibrate* clears it.
@@ -39,6 +51,7 @@ medians over noise seeds, with `n` stated; a single draw is always labelled.
 ### Changed
 
 - Test suite: 223 tests (was 210).
+- `VERSION` and the GUI footer to 2.5.1; `dist/` ignored by git.
 
 ## [2.5.0] — 2026-11-07
 

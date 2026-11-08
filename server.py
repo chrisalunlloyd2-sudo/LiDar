@@ -71,7 +71,7 @@ from shapes import classify_shape  # noqa: E402
 from store import Store  # noqa: E402
 from triangulate import triangulate_point, triangulate_size  # noqa: E402
 
-VERSION = "2.5.0"
+VERSION = "2.5.1"
 GUI_DIR = os.path.join(HERE, "gui_pages")
 _DEFAULT_INTR = CameraIntrinsics.from_fov(720, 1280, 60.0)
 
@@ -634,6 +634,7 @@ def main():
     parser.add_argument("--port", type=int, default=8790)
     parser.add_argument("--db", default=os.path.join(HERE, "lidarv2.db"))
     parser.add_argument("--memory", action="store_true", help="use an in-memory database")
+    parser.add_argument("--version", action="version", version="lidarv2 " + VERSION)
     args = parser.parse_args()
 
     db_path = ":memory:" if args.memory else args.db
