@@ -9,13 +9,36 @@
       </select>
     </span>
   </div>
-  <button class="btn" id="btnFlash">Flash depth</button>
+  <button class="btn" id="btnFlash">Flash demo</button>
+  <div class="kv" style="margin-top:8px">
+    <span>reference</span>
+    <span>
+      <input id="flashRefM" type="number" step="0.1" min="0.3" max="8" value="1.0"
+        style="background:#0b1220;color:var(--ink);border:1px solid #24344f;border-radius:4px;padding:3px 6px;font-size:12px;font-family:inherit;width:72px"> m
+    </span>
+  </div>
+  <div class="kv">
+    <span>scrub</span>
+    <span>
+      <select id="flashScrub" style="background:#0b1220;color:var(--ink);border:1px solid #24344f;border-radius:4px;padding:3px 6px;font-size:12px;font-family:inherit">
+        <option>1</option><option selected>3</option><option>5</option><option>7</option>
+      </select> frames / phase
+    </span>
+  </div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0">
+    <button class="btn" id="btnFlashAmbient">1 · Ambient</button>
+    <button class="btn" id="btnFlashTorch">2 · Torch</button>
+    <button class="btn" id="btnFlashSolve">Solve ping</button>
+  </div>
+  <div class="kv"><span>frames</span><span id="flashFrames">—</span></div>
   <div class="kv"><span>depth MAPE</span><span id="flashMape">—</span></div>
   <div class="kv"><span>valid cells</span><span id="flashValid">—</span></div>
   <div class="kv"><span>planes</span><span id="flashPlanes">—</span></div>
   <pre id="flashAscii" style="margin-top:8px;padding:6px;background:#060a12;border:1px solid var(--line);border-radius:6px;font-size:6px;line-height:1.05;letter-spacing:0;color:var(--acc);overflow-x:auto"></pre>
   <div class="muted" id="flashDetail">
-    Pulse the torch, subtract the ambient frame, invert the square law. Ranges
-    are relative to the calibration patch — mixed albedo is reported separately.
+    Live ping: start the camera, point the reticle at a flat patch at the
+    reference distance, capture an <b>ambient</b> frame, turn the torch on, then
+    capture a <b>torch</b> frame and solve. Leave auto-exposure alone at your
+    peril — a gain change between frames cancels the differential.
   </div>
 </div>

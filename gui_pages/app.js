@@ -12,6 +12,7 @@ const state = {
   sendTimer: null,
   mapPoints: [],
   lastResult: null,
+  flash: { ambient: null, torch: null },
 };
 
 const PRESETS = [
@@ -232,14 +233,8 @@ function calibrate() {
 }
 
 // ── observation → backend ─────────────────────────────────────────────
-async function sendObservation() {
-  if (!state.stream || !state.intrinsics) return;
-  const det = analyzeFrame();
-  state.detection = det;
-  drawOverlay(det);
-  if (!det) return;
-
-  const payload = {
+function observationPayload(det) {
+  return {
     object_px_width: det.width,
     object_px_height: det.height,
     center_x: det.centerX,
@@ -258,6 +253,16 @@ async function sendObservation() {
     room: $("room").value || "unknown",
     level: 0.95,
   };
+}
+
+async function sendObservation() {
+  if (!state.stream || !state.intrinsics) return;
+  const det = analyzeFrame();
+  state.detection = det;
+  drawOverlay(det);
+  if (!det) return;
+
+  const payload = observationPayload(det);
 
   try {
     const res = await fetch("/api/observe", {
@@ -569,6 +574,217 @@ async function runPlan() {
   } catch (e) { setStatus("plan failed: " + e.message, "err"); }
 }
 
+// ── live torch-pulse capture ──────────────────────────────────────────
+const FLASH_COLS = 48;
+const FLASH_ROWS = 27;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function torchTrack() {
+  return state.stream ? state.stream.getVideoTracks()[0] : null;
+}
+
+function torchSupported() {
+  const track = torchTrack();
+  const caps = track && track.getCapabilities ? track.getCapabilities() : null;
+  return !!(caps && caps.torch);
+}
+
+async function setTorch(on) {
+  const track = torchTrack();
+  if (!track || !torchSupported()) return false;
+  try {
+    await track.applyConstraints({ advanced: [{ torch: on }] });
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+// 8x supersample, then box-average — drawImage() alone has no guaranteed
+// downscale filter, and the backend expects honest cell means.
+function cellGrid(cols, rows) {
+  const video = $("video");
+  if (!video || !video.videoWidth) throw new Error("start the camera first");
+  const scale = 8;
+  const canvas = document.createElement("canvas");
+  canvas.width = cols * scale;
+  canvas.height = rows * scale;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+  const sums = new Float64Array(cols * rows);
+  for (let y = 0; y < canvas.height; y++) {
+    const row = Math.floor(y / scale) * cols;
+    for (let x = 0; x < canvas.width; x++) {
+      const i = (y * canvas.width + x) * 4;
+      sums[row + Math.floor(x / scale)] +=
+        0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
+    }
+  }
+  const per = scale * scale;
+  const grid = new Array(cols * rows);
+  for (let i = 0; i < grid.length; i++) grid[i] = +(sums[i] / per).toFixed(3);
+  return grid;
+}
+
+function centreMedian(grid, cols, rows, lo = 0.25, hi = 0.75) {
+  const vals = [];
+  const c0 = Math.floor(cols * lo), c1 = Math.ceil(cols * hi);
+  const r0 = Math.floor(rows * lo), r1 = Math.ceil(rows * hi);
+  for (let r = r0; r < r1; r++) {
+    for (let c = c0; c < c1; c++) vals.push(grid[r * cols + c]);
+  }
+  vals.sort((a, b) => a - b);
+  return vals[Math.floor(vals.length / 2)] || 0;
+}
+
+function flashFramesLabel() {
+  const ambient = state.flash.ambient
+    ? `ambient ✓${state.flash.ambientSamples ? "×" + state.flash.ambientSamples : ""}`
+    : "ambient —";
+  const torch = state.flash.torch
+    ? `torch ✓${state.flash.torchSamples ? "×" + state.flash.torchSamples : ""}`
+    : "torch —";
+  return `${ambient} · ${torch}`;
+}
+
+function flashScrubCount() {
+  return Math.max(1, Math.min(9, parseInt($("flashScrub").value, 10) || 3));
+}
+
+// Per-cell median across an odd sample count: one stray frame (auto-exposure
+// step, hand shake, mode change) cannot move the grid.
+function scrubGrids(grids) {
+  const n = grids.length;
+  if (n === 1) return grids[0].slice();
+  const cells = grids[0].length;
+  const out = new Array(cells);
+  const buf = new Array(n);
+  for (let i = 0; i < cells; i++) {
+    for (let k = 0; k < n; k++) buf[k] = grids[k][i];
+    buf.sort((a, b) => a - b);
+    out[i] = buf[(n - 1) >> 1];
+  }
+  return out;
+}
+
+function gridSpread(grids) {
+  let worst = 0;
+  for (let i = 0; i < grids[0].length; i++) {
+    let lo = Infinity, hi = -Infinity;
+    for (const g of grids) { if (g[i] < lo) lo = g[i]; if (g[i] > hi) hi = g[i]; }
+    if (hi - lo > worst) worst = hi - lo;
+  }
+  return worst;
+}
+
+async function capturePhase({ torchOff, torchOn }) {
+  const n = flashScrubCount();
+  const frames = [];
+  for (let i = 0; i < n; i++) {
+    if (torchOff && torchSupported()) await setTorch(false);
+    if (torchOn) await setTorch(true);
+    await sleep(i === 0 ? 220 : 120);
+    frames.push(cellGrid(FLASH_COLS, FLASH_ROWS));
+  }
+  return { grid: scrubGrids(frames), samples: frames.length, spread: gridSpread(frames) };
+}
+
+async function captureAmbient() {
+  try {
+    const phase = await capturePhase({ torchOff: true, torchOn: false });
+    state.flash.ambient = phase.grid;
+    state.flash.ambientSamples = phase.samples;
+    $("flashFrames").textContent = flashFramesLabel();
+    setStatus(`Ambient scrubbed (${phase.samples} frames, cell spread ${phase.spread.toFixed(1)} DN). `
+      + (torchSupported()
+        ? "The app can drive the torch — press Torch frame."
+        : "Switch the phone torch on, then press Torch frame."), "ok");
+  } catch (e) { setStatus("ambient capture failed: " + e.message, "err"); }
+}
+
+async function captureTorch() {
+  try {
+    if (!state.flash.ambient) {
+      setStatus("Capture the ambient frame first.", "err");
+      return;
+    }
+    const phase = await capturePhase({ torchOff: false, torchOn: true });
+    state.flash.torch = phase.grid;
+    state.flash.torchSamples = phase.samples;
+    $("flashFrames").textContent = flashFramesLabel();
+    const driven = torchSupported();
+    setStatus(`Torch scrubbed (${phase.samples} frames, cell spread ${phase.spread.toFixed(1)} DN). `
+      + (driven ? "Torch switched by the app." : "Keep the torch on until the ping is solved."), "ok");
+  } catch (e) { setStatus("torch capture failed: " + e.message, "err"); }
+}
+
+async function solveFlashPing() {
+  if (!state.flash.ambient || !state.flash.torch) {
+    setStatus("Capture the ambient frame, then the torch frame.", "err");
+    return;
+  }
+  const refM = parseFloat($("flashRefM").value) || 1.0;
+  const diff = state.flash.ambient.map((a, i) => Math.max(0, state.flash.torch[i] - a));
+  const s0 = centreMedian(diff, FLASH_COLS, FLASH_ROWS);
+  if (!(s0 > 0.5)) {
+    setStatus("No differential in the reticle — torch off, or auto-exposure ate the flash.", "err");
+    return;
+  }
+  const calibration = {
+    reference_depth_m: refM,
+    reference_delta_dn: s0,
+    sigma_delta_dn: 1.4,
+    albedo_rel_sigma: 0.15,
+  };
+  const intr = state.intrinsics || makeIntrinsics(720, 1280, 60);
+  const grids = {
+    cols: FLASH_COLS, rows: FLASH_ROWS,
+    ambient: state.flash.ambient, flash: state.flash.torch,
+    intrinsics: intr, pose: state.pose, calibration: calibration,
+  };
+  setStatus(`Solving light ping — reference ${refM} m at ${s0.toFixed(1)} DN…`);
+  try {
+    const res = await fetch("/api/flash", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(grids),
+    });
+    const d = await res.json();
+    if (!res.ok || d.error) { setStatus(d.error || "flash failed", "err"); return; }
+    $("flashMape").textContent = "live";
+    $("flashValid").textContent = `${d.valid_pct} % of ${d.cols * d.rows}`;
+    $("flashPlanes").textContent = `${d.planes.length} · ${d.n_targets} target(s)`;
+    $("flashAscii").textContent = (d.ascii || []).join("\n");
+
+    let fused = null;
+    const det = state.detection || analyzeFrame();
+    if (det) {
+      try {
+        const ores = await fetch("/api/flash/observe", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(Object.assign({}, observationPayload(det), grids)),
+        });
+        const od = await ores.json();
+        if (ores.ok && !od.error) fused = od;
+      } catch (e) { /* the map above is still valid without fusion */ }
+    }
+
+    const targetText = d.n_targets
+      ? d.targets.map((t) => `${t.label} ${t.measured_width_mm} mm ±${t.width_ci95_mm}`).join(" · ")
+      : "no catalog target matched this ping";
+    const cue = d.flash_cue;
+    $("flashDetail").textContent = (cue
+      ? `flash ${cue.depth_m.toFixed(2)} m ±${(3 * cue.sigma_m).toFixed(2)} m (3σ) · `
+      : "")
+      + (fused ? `fused ${fused.estimate.depth_m.toFixed(2)} m `
+        + `[${fused.estimate.ci_low_m.toFixed(2)}, ${fused.estimate.ci_high_m.toFixed(2)}] · ` : "")
+      + targetText;
+    setStatus(`Ping solved — ${d.planes.length} plane(s), ${d.n_targets} target(s)`
+      + (fused ? `, fused ${fused.estimate.depth_m.toFixed(2)} m.` : "."), "ok");
+  } catch (e) { setStatus("flash solve failed: " + e.message, "err"); }
+}
+
 async function runFlash() {
   const mixed = $("flashAlbedo").value === "mixed";
   try {
@@ -657,6 +873,9 @@ function bindButtons() {
   if ($("btnArena")) $("btnArena").onclick = runArena;
   if ($("btnPlan")) $("btnPlan").onclick = runPlan;
   if ($("btnFlash")) $("btnFlash").onclick = runFlash;
+  if ($("btnFlashAmbient")) $("btnFlashAmbient").onclick = captureAmbient;
+  if ($("btnFlashTorch")) $("btnFlashTorch").onclick = captureTorch;
+  if ($("btnFlashSolve")) $("btnFlashSolve").onclick = solveFlashPing;
   if ($("btnHw")) $("btnHw").onclick = probeHw;
   $("btnReset").onclick = resetAll;
 }
