@@ -200,6 +200,10 @@ is under 0.5 DN instead of inventing a range. The scrubbed grids go to
 `/api/flash` for the map and, with a live monocular observation, to
 `/api/flash/observe` for the fused depth ± CI.
 
+The reference number is the whole gauge: see [CALIBRATION.md](CALIBRATION.md) for
+the healthy DN window, the synthetic sweep, the device procedure and the failure
+modes.
+
 ## Hardware limits
 
 `python3 -m arena.hardware_probe --processes` measured on the Android 13 /

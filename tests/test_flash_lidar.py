@@ -210,6 +210,66 @@ class TestDemoScene(unittest.TestCase):
         self.assertLess(merged["estimate"].ci_low_m, merged["estimate"].depth_m)
 
 
+class TestFlashCue(unittest.TestCase):
+    def cell(self, u, v, depth, valid=True, sigma=0.05):
+        return {"index": 0, "u": u, "v": v, "depth_m": depth,
+                "sigma_m": sigma if valid else None, "valid": valid}
+
+    def test_centre_cell_picks_the_target_cluster(self):
+        cells = [self.cell(INTR.cx, INTR.cy, 1.5)]
+        cells += [self.cell(INTR.cx + 10 * k, INTR.cy, 1.5) for k in range(1, 5)]
+        cells += [self.cell(INTR.cx, INTR.cy + 10 * k, 3.4) for k in range(1, 5)]
+        cue = fl.flash_cue(cells, 3, 3, INTR)
+        self.assertIsNotNone(cue)
+        self.assertAlmostEqual(cue.depth_m, 1.5, places=6)
+
+    def test_saturated_centre_abstains_instead_of_reporting_background(self):
+        cells = [self.cell(INTR.cx, INTR.cy, None, valid=False)]
+        cells += [self.cell(INTR.cx + 10 * k, INTR.cy, 4.0) for k in range(1, 6)]
+        self.assertIsNone(fl.flash_cue(cells, 3, 3, INTR))
+
+    def test_too_few_valid_cells_abstains(self):
+        cells = [self.cell(INTR.cx, INTR.cy, 1.5)]
+        cells += [self.cell(INTR.cx, INTR.cy + 400, 1.5)]
+        self.assertIsNone(fl.flash_cue(cells, 2, 2, INTR))
+
+
+class TestCalibrationFromGrids(unittest.TestCase):
+    def test_anchored_pair_suggests_a_constant(self):
+        frame = wall_frame(2.0)
+        cal = fl.calibrate_scene(frame, INTR, sample="wall")
+        result = fl.calibrate_from_grids(
+            frame["ambient"], frame["flash"], COLS, ROWS, INTR,
+            known_range_m=cal.reference_depth_m)
+        self.assertTrue(result["anchored"])
+        self.assertIn(result["status"], ("ok", "marginal"))
+        suggested = result["suggested_calibration"]
+        self.assertAlmostEqual(suggested["reference_depth_m"],
+                               cal.reference_depth_m, places=6)
+        self.assertGreater(suggested["constant"], 0.0)
+        self.assertAlmostEqual(suggested["reference_delta_dn"],
+                               result["centre_median_dn"], places=3)
+
+    def test_unanchored_pair_is_reported_as_such(self):
+        frame = wall_frame(2.0)
+        result = fl.calibrate_from_grids(frame["ambient"], frame["flash"],
+                                         COLS, ROWS, INTR)
+        self.assertFalse(result["anchored"])
+        self.assertIsNone(result["suggested_calibration"])
+
+    def test_dark_pair_is_flagged(self):
+        ambient = [10.0] * (COLS * ROWS)
+        flash = [10.0] * (COLS * ROWS)
+        result = fl.calibrate_from_grids(ambient, flash, COLS, ROWS, INTR,
+                                         known_range_m=1.0)
+        self.assertEqual(result["status"], "dark")
+        self.assertIsNone(result["suggested_calibration"])
+
+    def test_grid_length_is_enforced(self):
+        with self.assertRaises(ValueError):
+            fl.calibrate_from_grids([1.0], [1.0], 4, 4, INTR)
+
+
 class TestAscii(unittest.TestCase):
     def test_renders_valid_cells_and_handles_empty(self):
         frame = wall_frame(2.0)

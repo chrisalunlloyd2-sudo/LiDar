@@ -7,7 +7,27 @@ medians over noise seeds, with `n` stated; a single draw is always labelled.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- `scripts/flash_calibrate.py`: `--sweep` checks the gauge at 0.5–4 m and
+  whether one calibration transfers; `--grids` analyses a captured pair and
+  returns a health verdict plus the suggested `k`.
+- `calibrate_from_grids()` in `flash_lidar.py`: reference flux, evenness, lit
+  fraction and `ok` / `marginal` / `saturated` / `dark` status.
+- **Export grids** button in the flash card, so a device capture can be replayed
+  with the CLI.
+- `CALIBRATION.md`: healthy windows, synthetic sweep tables, device procedure
+  and a failure-mode matrix.
+
+### Fixed
+
+- `flash_cue` fell back to the nearest *valid* cell when the reticle cell was
+  unmeasurable, so a clipped 0.75 m board read **4.03 m** — the background wall.
+  It now abstains when the reticle cell itself is invalid.
+
+### Changed
+
+- Test suite: 217 tests (was 210).
 
 ## [2.5.0] — 2026-11-07
 

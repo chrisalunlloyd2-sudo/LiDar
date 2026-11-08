@@ -147,6 +147,69 @@ def valid_fraction(cells):
     return sum(1 for c in cells if c["valid"]) / len(cells)
 
 
+# ── calibration from a captured pair ───────────────────────────────────
+def calibrate_from_grids(ambient_cells, flash_cells, cols, rows, intrinsics,
+                         known_range_m=None, inner=0.25):
+    """Suggest a `FlashCalibration` from one ambient/torch pair.
+
+    The reference flux is the median differential of the centre box (the
+    reticle), because that is what the user is aiming at when calibrating.
+    `known_range_m` is the *range* to that patch; without it the result is
+    unanchored and cannot produce metres.
+
+    Returns plain numbers plus a health verdict, so the caller can refuse a bad
+    calibration instead of silently ranging with it.
+    """
+    if len(ambient_cells) != cols * rows or len(flash_cells) != cols * rows:
+        raise ValueError("ambient and flash grids must each hold cols*rows cells")
+    diff = differential_map(ambient_cells, flash_cells)
+    c0 = max(0, int(cols * inner))
+    c1 = max(c0 + 1, cols - c0)
+    r0 = max(0, int(rows * inner))
+    r1 = max(r0 + 1, rows - r0)
+    centre = sorted(diff[r * cols + c]
+                    for r in range(r0, r1) for c in range(c0, c1))
+    med = statistics.median(centre)
+    p90 = centre[int(0.9 * (len(centre) - 1))]
+    lit = sum(1 for v in diff if v >= NOISE_FLOOR_DN) / len(diff)
+    warnings = []
+    if med > 200.0:
+        warnings.append("centre differential above 200 DN — stop down or move "
+                        "back, cells are close to clipping")
+    elif med < 20.0:
+        warnings.append("centre differential below 20 DN — move closer or "
+                        "brighten; range noise will dominate")
+    if lit < 0.5:
+        warnings.append("less than half the frame receives torch light")
+    if med > 0 and p90 / med > 1.5:
+        warnings.append("uneven illumination: p90/median = %.2f" % (p90 / med))
+    status = "ok"
+    if med <= 0.0:
+        status = "dark"
+    elif med > 200.0:
+        status = "saturated"
+    elif warnings:
+        status = "marginal"
+    out = {
+        "cols": cols,
+        "rows": rows,
+        "centre_median_dn": round(med, 3),
+        "centre_p90_dn": round(p90, 3),
+        "full_median_dn": round(statistics.median(sorted(diff)), 3),
+        "lit_fraction": round(lit, 4),
+        "status": status,
+        "warnings": warnings,
+        "anchored": known_range_m is not None,
+        "suggested_calibration": None,
+    }
+    if known_range_m is not None and med > 0:
+        cal = FlashCalibration(reference_depth_m=float(known_range_m),
+                               reference_delta_dn=round(med, 3))
+        out["suggested_calibration"] = cal.as_dict()
+        out["suggested_calibration"]["albedo_rel_sigma"] = cal.albedo_rel_sigma
+    return out
+
+
 # ── temporal fusion ────────────────────────────────────────────────────
 def fuse_depth_frames(frames, min_frames=3, converge_sigma_m=0.02):
     """Fuse N independent depth grids cell-by-cell (inverse variance)."""
@@ -526,6 +589,13 @@ def flash_cue(cells, cols, rows, intrinsics, u=None, v=None, radius_px=80.0):
     """
     cu = intrinsics.cx if u is None else float(u)
     cv = intrinsics.cy if v is None else float(v)
+    nearest = min(cells, key=lambda c: math.hypot(c["u"] - cu, c["v"] - cv),
+                  default=None)
+    if nearest is None or not (nearest["valid"] and nearest["depth_m"]
+                               and nearest["sigma_m"]):
+        # the reticle cell itself is unmeasurable (saturated, dark, too far).
+        # Falling back to the nearest valid cell would report the background.
+        return None
     picked = [c for c in cells
               if c["valid"] and c["depth_m"] and c["sigma_m"]
               and math.hypot(c["u"] - cu, c["v"] - cv) <= radius_px]

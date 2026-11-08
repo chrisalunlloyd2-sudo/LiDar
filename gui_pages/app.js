@@ -720,6 +720,32 @@ async function captureTorch() {
   } catch (e) { setStatus("torch capture failed: " + e.message, "err"); }
 }
 
+function exportFlashGrids() {
+  if (!state.flash.ambient || !state.flash.torch) {
+    setStatus("Nothing to export — capture both phases first.", "err");
+    return;
+  }
+  const payload = {
+    cols: FLASH_COLS,
+    rows: FLASH_ROWS,
+    intrinsics: state.intrinsics || makeIntrinsics(720, 1280, 60),
+    reference_m: parseFloat($("flashRefM").value) || null,
+    samples: {
+      ambient: state.flash.ambientSamples || 1,
+      torch: state.flash.torchSamples || 1,
+    },
+    ambient: state.flash.ambient,
+    flash: state.flash.torch,
+  };
+  const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "flash_grids.json";
+  a.click();
+  URL.revokeObjectURL(a.href);
+  setStatus("Exported flash_grids.json — analyse it with scripts/flash_calibrate.py --grids.", "ok");
+}
+
 async function solveFlashPing() {
   if (!state.flash.ambient || !state.flash.torch) {
     setStatus("Capture the ambient frame, then the torch frame.", "err");
@@ -876,6 +902,7 @@ function bindButtons() {
   if ($("btnFlashAmbient")) $("btnFlashAmbient").onclick = captureAmbient;
   if ($("btnFlashTorch")) $("btnFlashTorch").onclick = captureTorch;
   if ($("btnFlashSolve")) $("btnFlashSolve").onclick = solveFlashPing;
+  if ($("btnFlashExport")) $("btnFlashExport").onclick = exportFlashGrids;
   if ($("btnHw")) $("btnHw").onclick = probeHw;
   $("btnReset").onclick = resetAll;
 }
