@@ -1,5 +1,8 @@
 # lidarv2 — emulative LiDAR + spatial inventory
 
+[![CI](https://github.com/chrisalunlloyd2-sudo/LiDar/actions/workflows/ci.yml/badge.svg)](https://github.com/chrisalunlloyd2-sudo/LiDar/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-00ffaa.svg)](LICENSE)
+
 `lidarv2` turns a phone camera into an **emulated LiDAR**: it estimates monocular
 depth, fuses several cues into a **confidence interval**, corrects the **5 optical
 illusions**, classifies **squares / rectangles / cubes / cuboids**, fits a 3-D model

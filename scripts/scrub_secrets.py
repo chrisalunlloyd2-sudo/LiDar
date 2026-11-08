@@ -15,9 +15,11 @@ Usage
   python3 scripts/scrub_secrets.py            # all three passes
   python3 scripts/scrub_secrets.py --tree
   python3 scripts/scrub_secrets.py --history --json report.json
+  python3 scripts/scrub_secrets.py --history --rev origin/main --rev HEAD
+  python3 scripts/scrub_secrets.py --fail-on high   # CI: emails ok, secrets fail
   python3 scripts/scrub_secrets.py --max-bytes 2000000
 
-Exit code 1 when anything is found, 0 when clean.
+Exit code 1 when findings reach `--fail-on` severity (default any), 0 otherwise.
 """
 
 import argparse
@@ -166,6 +168,9 @@ def main(argv=None):
     parser.add_argument("--json", default=None, help="write findings as JSON")
     parser.add_argument("--rev", action="append", default=None,
                         help="limit history to this rev (repeatable, default --all)")
+    parser.add_argument("--fail-on", default="any",
+                        choices=["critical", "high", "medium", "low", "any", "none"],
+                        help="lowest severity that makes the exit code 1 (default any)")
     parser.add_argument("--max-bytes", type=int, default=1_000_000)
     args = parser.parse_args(argv)
 
@@ -198,7 +203,10 @@ def main(argv=None):
             json.dump({"findings": findings, "counts": counts}, fh, indent=2)
         print("wrote", args.json)
 
-    return 1 if findings else 0
+    if args.fail_on == "none":
+        return 0
+    limit = order.get(args.fail_on, 3) if args.fail_on != "any" else 3
+    return 1 if any(order[f["severity"]] <= limit for f in findings) else 0
 
 
 if __name__ == "__main__":
