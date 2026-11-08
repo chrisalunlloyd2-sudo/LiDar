@@ -123,8 +123,17 @@ the device table fills itself. **Guided pass** walks the four distances for you.
 5. Repeat at **2.0 m** and **3.0 m**; the pass marks itself complete after the
    fourth row. If you press **Guided pass** again mid-run it cancels; running
    unlocked pings instead would re-anchor each time and read ~0 %.
-6. Press **Copy rows** and paste them under *Device results* below. **Recalibrate**
-   clears the locked `k` when you change exposure, zoom or camera.
+6. Press **Copy rows**. Either paste them under *Device results*, or save them to
+   a file and let the tool rewrite the table (validated, sorted; print-only
+   unless you pass `--write`):
+
+   ```bash
+   python3 scripts/fill_calibration.py --rows rows.md --write
+   ```
+
+   The locked `k` lives in localStorage, so a reload mid-walk keeps the anchor —
+   it shows as `k … (restored)`. **Recalibrate** clears it when exposure, zoom or
+   camera change.
 7. Optional: **Export grids** at each distance and replay the analysis from the
    shell — same verdict, reproducible:
 

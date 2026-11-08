@@ -7,17 +7,28 @@ medians over noise seeds, with `n` stated; a single draw is always labelled.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.5.3] — 2026-11-08
+
 ### Added
 
+- `scripts/fill_calibration.py`: parses the rows copied from the card, validates
+  range/DN/k/status, sorts by distance and rewrites the *Device results* table
+  in `CALIBRATION.md` (preview by default, `--write` to apply). Covered by five
+  tests.
 - `tests/test_docs.py`: guards the release docs against drift — `VERSION` must
   have a CHANGELOG section, `[Unreleased]` must come first, the GUI footer must
   show the version, and the README must not pin a `.deb` filename.
 
 ### Changed
 
+- The locked gauge constant `k` is persisted in localStorage and restored with a
+  `(restored)` marker, so reloading Chrome mid-pass no longer loses the anchor;
+  *Recalibrate* and starting a guided pass clear it.
 - README manual install resolves the latest tag through the GitHub API instead
-  of hard-coding a version, so it cannot rot; stale test counts refreshed
-  (223).
+  of hard-coding a version, so it cannot rot; stale test counts refreshed.
+- Test suite: 232 tests (was 223); `VERSION` and the GUI footer to 2.5.3.
 
 ## [2.5.2] — 2026-11-08
 

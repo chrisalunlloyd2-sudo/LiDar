@@ -741,6 +741,37 @@ function exportFlashGrids() {
 
 // ── calibration log (fills the CALIBRATION.md device table) ───────────
 const FLASH_LOG_KEY = "lidar.flashLog";
+const FLASH_K_KEY = "lidar.flashK";
+let flashKRestored = false;
+
+function loadFlashK() {
+  try {
+    const k = JSON.parse(localStorage.getItem(FLASH_K_KEY) || "null");
+    if (k && typeof k.reference_depth_m === "number") {
+      flashKRestored = true;
+      return k;
+    }
+  } catch (e) { /* private mode */ }
+  return null;
+}
+
+function saveFlashK(k) {
+  try {
+    if (k) localStorage.setItem(FLASH_K_KEY, JSON.stringify(k));
+    else localStorage.removeItem(FLASH_K_KEY);
+  } catch (e) { /* private mode */ }
+}
+
+function showFlashK() {
+  if (!$("flashK")) return;
+  const k = state.flashK;
+  $("flashK").textContent = k
+    ? `k ${k.constant.toFixed(1)} @ ${k.reference_depth_m.toFixed(2)} m`
+      + (flashKRestored ? " (restored)" : "")
+    : "—";
+}
+
+state.flashK = loadFlashK();
 
 function loadFlashLog() {
   try {
@@ -801,7 +832,9 @@ function clearFlashLog() {
 
 function clearFlashK() {
   state.flashK = null;
-  if ($("flashK")) $("flashK").textContent = "—";
+  flashKRestored = false;
+  saveFlashK(null);
+  showFlashK();
   setStatus("Locked k cleared — the next ping re-anchors on its reference range.", "ok");
 }
 
@@ -825,7 +858,9 @@ function startFlashPass() {
   }
   state.flashPass = { active: true, index: 0 };
   state.flashK = null;                     // the first step re-anchors k
-  $("flashK").textContent = "—";
+  flashKRestored = false;
+  saveFlashK(null);
+  showFlashK();
   $("flashLock").checked = true;
   setPassStep();
   setStatus("Guided pass: stand at 1.0 m, then Ambient → Torch → Solve.", "ok");
@@ -896,7 +931,9 @@ async function solveFlashPing() {
     };
     if ($("flashLock").checked) {
       state.flashK = Object.assign({}, calibration);
-      $("flashK").textContent = `k ${calibration.constant.toFixed(1)} @ ${calibration.reference_depth_m.toFixed(2)} m`;
+      flashKRestored = false;
+      saveFlashK(state.flashK);
+      showFlashK();
     }
   }
   const grids = {
@@ -1065,6 +1102,7 @@ async function init() {
   fillPresets();
   bindButtons();
   renderFlashLog();
+  showFlashK();
   enableOrientation();
   watchGPS();
   resizeOverlay();
