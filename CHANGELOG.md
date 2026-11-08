@@ -7,6 +7,10 @@ medians over noise seeds, with `n` stated; a single draw is always labelled.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.5.2] — 2026-11-08
+
 ### Added
 
 - **Guided calibration pass** in the flash card: one button walks 1.0 → 1.5 →
@@ -18,6 +22,10 @@ medians over noise seeds, with `n` stated; a single draw is always labelled.
   publishes the assets to the release.
 - CI now builds and verifies the `.deb` on every push and PR, so packaging
   regressions (bad permissions, a launcher that cannot start) fail before a tag.
+
+### Changed
+
+- `VERSION` and the GUI footer to 2.5.2.
 
 ## [2.5.1] — 2026-11-08
 
