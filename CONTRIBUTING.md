@@ -94,7 +94,8 @@ Flash tests: 23 pass.
 - [ ] tests pass, no new deps, no network calls in tests
 - [ ] numbers carry `n` and a spread, not one lucky draw
 - [ ] refusal paths exist for weak evidence
-- [ ] README/CHANGELOG-style notes updated if behaviour changed
+- [ ] README updated if behaviour changed, and a `CHANGELOG.md` entry under
+      `[Unreleased]` for anything user-visible
 - [ ] scrub clean at `--fail-on high`
 
 ## License

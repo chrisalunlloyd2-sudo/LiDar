@@ -400,6 +400,11 @@ python3 -m pytest tests -q      # 210 tests
   known bearing for georeferencing work.
 - This is a statistical inference engine, not a trained depth network.
 
+## Changelog
+
+Release history with the measured numbers behind each decision lives in
+[CHANGELOG.md](CHANGELOG.md).
+
 ## License
 
 MIT — see [LICENSE](LICENSE). Contributions are welcome under the same terms.
