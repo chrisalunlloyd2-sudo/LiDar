@@ -396,3 +396,7 @@ python3 -m pytest tests -q      # 210 tests
 - GPS altitude and compass heading vary by device; calibrate heading against a
   known bearing for georeferencing work.
 - This is a statistical inference engine, not a trained depth network.
+
+## License
+
+MIT — see [LICENSE](LICENSE). Contributions are welcome under the same terms.
