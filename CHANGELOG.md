@@ -21,6 +21,14 @@ medians over noise seeds, with `n` stated; a single draw is always labelled.
 - `POST /api/flash/calibrate`: the card now asks the backend for a verdict
   before ranging and shows `status · centre DN · k`; a dark pair is refused
   instead of solved.
+- **Locked `k`**: after the first ping the gauge constant can be kept, so the
+  1.0 → 1.5 → 2.0 → 3.0 m pass measures transfer instead of re-anchoring and
+  reading ~0 % every time. *Recalibrate* clears it.
+- **Calibration log** in the card (localStorage, 40 rows) with a Markdown row
+  per ping and **Copy rows**, so the device table in `CALIBRATION.md` is filled
+  from real pings rather than typed by hand.
+- `flash_calibrate.py --grids … --markdown` prints the same row from an
+  exported pair; README gains a Support line.
 
 ### Fixed
 
@@ -30,7 +38,7 @@ medians over noise seeds, with `n` stated; a single draw is always labelled.
 
 ### Changed
 
-- Test suite: 220 tests (was 210).
+- Test suite: 223 tests (was 210).
 
 ## [2.5.0] — 2026-11-07
 

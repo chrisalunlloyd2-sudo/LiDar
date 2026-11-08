@@ -13,7 +13,10 @@ const state = {
   mapPoints: [],
   lastResult: null,
   flash: { ambient: null, torch: null },
+  flashK: null,
+  flashLog: [],
 };
+state.flashLog = loadFlashLog();
 
 const PRESETS = [
   ["2x4", 88.9], ["2x6", 139.7], ["2x8", 184.2], ["4x4", 88.9], ["1x4", 88.9],
@@ -735,6 +738,72 @@ function exportFlashGrids() {
   setStatus("Exported flash_grids.json — analyse it with scripts/flash_calibrate.py --grids.", "ok");
 }
 
+// ── calibration log (fills the CALIBRATION.md device table) ───────────
+const FLASH_LOG_KEY = "lidar.flashLog";
+
+function loadFlashLog() {
+  try {
+    const rows = JSON.parse(localStorage.getItem(FLASH_LOG_KEY) || "[]");
+    return Array.isArray(rows) ? rows : [];
+  } catch (e) { return []; }
+}
+
+function flashLogMarkdown() {
+  const num = (v, d) => (v == null ? "—" : v.toFixed(d));
+  return state.flashLog.map((r) => {
+    const err = r.error_pct == null ? "—"
+      : (r.error_pct >= 0 ? "+" : "") + r.error_pct.toFixed(2);
+    return `| ${num(r.ref_m, 2)} | ${num(r.dn, 1)} | ${num(r.k, 1)} | `
+      + `${num(r.cue_m, 3)} | ${err} | ${r.status} | `
+      + `${r.locked ? "locked k" : "anchor"} ${r.ts} |`;
+  }).join("\n");
+}
+
+function renderFlashLog() {
+  const pre = $("flashLog");
+  if (!pre) return;
+  const count = $("flashLogCount");
+  if (count) count.textContent = `${state.flashLog.length} row${state.flashLog.length === 1 ? "" : "s"}`;
+  pre.textContent = state.flashLog.length ? flashLogMarkdown() : "(no pings logged yet)";
+}
+
+function pushFlashLog(row) {
+  state.flashLog.push(row);
+  if (state.flashLog.length > 40) state.flashLog.shift();
+  try { localStorage.setItem(FLASH_LOG_KEY, JSON.stringify(state.flashLog)); } catch (e) { /* private mode */ }
+  renderFlashLog();
+}
+
+async function copyFlashLog() {
+  if (!state.flashLog.length) { setStatus("The log is empty.", "err"); return; }
+  const text = flashLogMarkdown();
+  try {
+    await navigator.clipboard.writeText(text);
+    setStatus("Rows copied — paste them under 'Device results' in CALIBRATION.md.", "ok");
+  } catch (e) {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    ta.remove();
+    setStatus("Rows copied (fallback).", "ok");
+  }
+}
+
+function clearFlashLog() {
+  state.flashLog = [];
+  try { localStorage.removeItem(FLASH_LOG_KEY); } catch (e) { /* ignore */ }
+  renderFlashLog();
+  setStatus("Calibration log cleared.", "ok");
+}
+
+function clearFlashK() {
+  state.flashK = null;
+  if ($("flashK")) $("flashK").textContent = "—";
+  setStatus("Locked k cleared — the next ping re-anchors on its reference range.", "ok");
+}
+
 async function solveFlashPing() {
   if (!state.flash.ambient || !state.flash.torch) {
     setStatus("Capture the ambient frame, then the torch frame.", "err");
@@ -760,7 +829,8 @@ async function solveFlashPing() {
   const suggested = verdict.suggested_calibration;
   const verdictText = `${verdict.status} · ${verdict.centre_median_dn.toFixed(1)} DN`
     + (suggested ? ` · k ${suggested.constant.toFixed(1)}` : "");
-  if (verdict.status === "dark" || !suggested) {
+  const locked = $("flashLock").checked && state.flashK;
+  if (!locked && (verdict.status === "dark" || !suggested)) {
     $("flashDetail").textContent = `${verdictText} — ${verdict.warnings.join("; ") || "no anchor"}`;
     setStatus("Ping refused: " + (verdict.warnings[0] || "no usable differential"), "err");
     return;
@@ -769,18 +839,30 @@ async function solveFlashPing() {
     $("flashDetail").textContent = `${verdictText} — ${verdict.warnings.join("; ")}`;
   }
 
-  const calibration = {
-    reference_depth_m: suggested.reference_depth_m,
-    reference_delta_dn: suggested.reference_delta_dn,
-    sigma_delta_dn: suggested.sigma_delta_dn,
-    albedo_rel_sigma: suggested.albedo_rel_sigma,
-  };
+  let calibration;
+  if (locked) {
+    calibration = Object.assign({}, state.flashK);
+  } else {
+    calibration = {
+      reference_depth_m: suggested.reference_depth_m,
+      reference_delta_dn: suggested.reference_delta_dn,
+      sigma_delta_dn: suggested.sigma_delta_dn,
+      albedo_rel_sigma: suggested.albedo_rel_sigma,
+      constant: suggested.constant,
+    };
+    if ($("flashLock").checked) {
+      state.flashK = Object.assign({}, calibration);
+      $("flashK").textContent = `k ${calibration.constant.toFixed(1)} @ ${calibration.reference_depth_m.toFixed(2)} m`;
+    }
+  }
   const grids = {
     cols: FLASH_COLS, rows: FLASH_ROWS,
     ambient: state.flash.ambient, flash: state.flash.torch,
     intrinsics: intr, pose: state.pose, calibration: calibration,
   };
-  setStatus(`Solving light ping — ${verdictText}, reference ${refM} m…`);
+  setStatus(`Solving light ping — ${verdictText}`
+    + (locked ? `, locked k from ${calibration.reference_depth_m.toFixed(2)} m` : "")
+    + `, true range ${refM} m…`);
   try {
     const res = await fetch("/api/flash", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -810,14 +892,26 @@ async function solveFlashPing() {
       ? d.targets.map((t) => `${t.label} ${t.measured_width_mm} mm ±${t.width_ci95_mm}`).join(" · ")
       : "no catalog target matched this ping";
     const cue = d.flash_cue;
+    const cueError = cue ? (cue.depth_m - refM) / refM * 100.0 : null;
+    pushFlashLog({
+      ts: new Date().toISOString().slice(0, 19).replace("T", " "),
+      ref_m: refM,
+      dn: verdict.centre_median_dn,
+      k: calibration.constant,
+      cue_m: cue ? cue.depth_m : null,
+      error_pct: cueError,
+      status: verdict.status,
+      locked: !!locked,
+    });
     $("flashDetail").textContent = (cue
-      ? `flash ${cue.depth_m.toFixed(2)} m ±${(3 * cue.sigma_m).toFixed(2)} m (3σ) · `
-      : "")
+      ? `flash ${cue.depth_m.toFixed(2)} m (${cueError >= 0 ? "+" : ""}${cueError.toFixed(2)} %) `
+        + `±${(3 * cue.sigma_m).toFixed(2)} m (3σ) · `
+      : "reticle unmeasurable · ")
       + (fused ? `fused ${fused.estimate.depth_m.toFixed(2)} m `
         + `[${fused.estimate.ci_low_m.toFixed(2)}, ${fused.estimate.ci_high_m.toFixed(2)}] · ` : "")
       + `${verdictText} · ` + targetText;
     setStatus(`Ping solved — ${d.planes.length} plane(s), ${d.n_targets} target(s)`
-      + (fused ? `, fused ${fused.estimate.depth_m.toFixed(2)} m.` : "."), "ok");
+      + (cue ? `, cue ${cue.depth_m.toFixed(2)} m vs ${refM.toFixed(2)} m` : "") + ".", "ok");
   } catch (e) { setStatus("flash solve failed: " + e.message, "err"); }
 }
 
@@ -913,6 +1007,9 @@ function bindButtons() {
   if ($("btnFlashTorch")) $("btnFlashTorch").onclick = captureTorch;
   if ($("btnFlashSolve")) $("btnFlashSolve").onclick = solveFlashPing;
   if ($("btnFlashExport")) $("btnFlashExport").onclick = exportFlashGrids;
+  if ($("btnFlashCopy")) $("btnFlashCopy").onclick = copyFlashLog;
+  if ($("btnFlashClearLog")) $("btnFlashClearLog").onclick = clearFlashLog;
+  if ($("btnFlashRecal")) $("btnFlashRecal").onclick = clearFlashK;
   if ($("btnHw")) $("btnHw").onclick = probeHw;
   $("btnReset").onclick = resetAll;
 }
@@ -921,6 +1018,7 @@ async function init() {
   await loadPages();
   fillPresets();
   bindButtons();
+  renderFlashLog();
   enableOrientation();
   watchGPS();
   resizeOverlay();

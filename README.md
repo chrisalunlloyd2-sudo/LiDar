@@ -405,6 +405,11 @@ python3 -m pytest tests -q      # 210 tests
   known bearing for georeferencing work.
 - This is a statistical inference engine, not a trained depth network.
 
+## Support
+
+If this saved you some time, send coffee money to
+`chrisalunlloyd2@gmail.com`.
+
 ## Changelog
 
 Release history with the measured numbers behind each decision lives in

@@ -60,7 +60,7 @@ def load_grids(path):
     return data, cols, rows, [float(v) for v in ambient], [float(v) for v in flash]
 
 
-def report_grids(path, known_range):
+def report_grids(path, known_range, markdown=False):
     data, cols, rows, ambient, flash = load_grids(path)
     intr = intrinsics_from(data)
     known = known_range if known_range is not None else data.get("reference_m")
@@ -68,6 +68,28 @@ def report_grids(path, known_range):
                                      known_range_m=known)
     result["source"] = os.path.basename(path)
     result["samples"] = data.get("samples")
+    cue = None
+    if result["suggested_calibration"]:
+        sc = result["suggested_calibration"]
+        cal = fl.FlashCalibration(
+            reference_depth_m=sc["reference_depth_m"],
+            reference_delta_dn=sc["reference_delta_dn"],
+            sigma_delta_dn=sc.get("sigma_delta_dn", 1.4),
+            albedo_rel_sigma=sc.get("albedo_rel_sigma", 0.15),
+        )
+        cue = fl.analyse_grid(ambient, flash, cols, rows, intr, cal)["flash_cue"]
+    result["cue"] = cue
+    if markdown:
+        sc = result["suggested_calibration"]
+        err = None if not cue else (cue["depth_m"] - known) / known * 100.0
+        print("| %s | %.1f | %s | %s | %s | %s | self-anchored |" % (
+            "—" if known is None else "%.2f" % known,
+            result["centre_median_dn"],
+            "—" if not sc else "%.1f" % sc["constant"],
+            "—" if not cue else "%.3f" % cue["depth_m"],
+            "—" if err is None else "%+.2f" % err,
+            result["status"]))
+        return result
     print("source      : %s (%d x %d cells)" % (path, cols, rows))
     print("centre      : median %.1f DN  p90 %.1f DN  lit %.1f %%"
           % (result["centre_median_dn"], result["centre_p90_dn"],
@@ -75,6 +97,10 @@ def report_grids(path, known_range):
     print("status      : %s" % result["status"])
     for warning in result["warnings"]:
         print("warning     : %s" % warning)
+    if cue:
+        print("reticle cue : %.3f m" % cue["depth_m"]
+              + ("" if known is None else "  (%+.2f %% vs %.2f m)"
+                 % ((cue["depth_m"] - known) / known * 100.0, known)))
     if result["suggested_calibration"]:
         cal = result["suggested_calibration"]
         print("calibration : reference %.2f m at %.1f DN (k = %.1f)"
@@ -203,7 +229,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     if args.grids:
-        result = report_grids(args.grids, args.range)
+        result = report_grids(args.grids, args.range, args.markdown)
     elif args.sweep or not args.grids:
         distances = DEFAULT_DISTANCES
         if args.distances:

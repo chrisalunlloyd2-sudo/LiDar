@@ -106,34 +106,39 @@ nearest *valid* cell — the background — and reported ~4.03 m for a 0.75 m bo
 ## Device pass
 
 Do this before trusting a live range on your phone. It takes about ten minutes.
+The card keeps a log of every ping and copies out rows in the table format, so
+the device table fills itself.
 
 1. `python3 server.py` and open the GUI on the phone; start the camera.
-2. Tape-measure a flat, evenly lit wall/patch. Enter that **range** in the
-   `reference` box (1.0 m is a good start).
-3. If the browser exposes torch control the card switches it; otherwise leave
-   the torch off for phase 1.
-4. **1 · Ambient** (scrub 3 frames), torch **on**, **2 · Torch**, **Solve ping**.
-   The card asks `/api/flash/calibrate` first and shows the verdict
-   (`ok`/`marginal`/`saturated`/`dark`, centre DN and `k`); a dark pair is
-   refused before any range is computed.
-5. Record what the card reports, then **Export grids** — it downloads
-   `flash_grids.json`.
-6. Replay the analysis and get the same verdict from the shell:
+2. Tape-measure a flat, evenly lit wall/patch at **1.0 m**. Type `1.0` in the
+   `reference (true range now)` box and leave **lock k** ticked.
+3. **1 · Ambient** (scrub 3 frames), torch **on**, **2 · Torch**, **Solve ping**.
+   The card asks `/api/flash/calibrate` for the verdict (`ok`/`marginal`/
+   `saturated`/`dark`, centre DN, `k`), refuses a dark pair, and **locks `k`**
+   at this reference.
+4. Move to **1.5 m**, measure again, type `1.5` in the same box — do **not**
+   press *Recalibrate*. Capture and solve: this ping uses the locked `k`, so the
+   logged error is a genuine transfer error, not a self-fulfilling one.
+5. Repeat at **2.0 m** and **3.0 m**. If the lock is off, each ping re-anchors
+   and every error will read ~0 — useful as a sanity check, useless as a test.
+6. Press **Copy rows** and paste them under *Device results* below. **Recalibrate**
+   clears the locked `k` when you change exposure, zoom or camera.
+7. Optional: **Export grids** at each distance and replay the analysis from the
+   shell — same verdict, reproducible:
 
    ```bash
-   python3 scripts/flash_calibrate.py --grids flash_grids.json --range 1.0
+   python3 scripts/flash_calibrate.py --grids flash_grids.json --range 1.5
+   python3 scripts/flash_calibrate.py --grids flash_grids.json --range 1.5 --markdown
    ```
 
-   The endpoint behind it is `POST /api/flash/calibrate` with
-   `{cols, rows, ambient[], flash[], reference_m}` if you want to drive it from
-   another client.
-
-7. Repeat at 1.5, 2.0 and 3.0 m. A calibration taken at one distance should
-   hold at the others; if it does not, the exposure changed between captures.
+   The second form prints one table row (`self-anchored`: it calibrates and
+   measures the same pair, so expect ~0 % — it validates the pipeline, not the
+   transfer). The endpoint behind it is `POST /api/flash/calibrate` with
+   `{cols, rows, ambient[], flash[], reference_m}`.
 
 ### Device results
 
-Fill this in on the actual hardware — do not copy the synthetic table.
+Filled from **Copy rows** on the phone — do not copy the synthetic table.
 
 | target range | centre DN | k = S0·d0² | cue range | error % | status | notes |
 |---|---|---|---|---|---|---|

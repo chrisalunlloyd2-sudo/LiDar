@@ -10,11 +10,10 @@
     </span>
   </div>
   <button class="btn" id="btnFlash">Flash demo</button>
-  <div class="kv" style="margin-top:8px">
-    <span>reference</span>
+  <div class="kv"><span>reference</span>
     <span>
       <input id="flashRefM" type="number" step="0.1" min="0.3" max="8" value="1.0"
-        style="background:#0b1220;color:var(--ink);border:1px solid #24344f;border-radius:4px;padding:3px 6px;font-size:12px;font-family:inherit;width:72px"> m
+        style="background:#0b1220;color:var(--ink);border:1px solid #24344f;border-radius:4px;padding:3px 6px;font-size:12px;font-family:inherit;width:72px"> m (true range now)
     </span>
   </div>
   <div class="kv">
@@ -25,17 +24,28 @@
       </select> frames / phase
     </span>
   </div>
+  <label class="muted" style="display:flex;gap:6px;align-items:center;margin:4px 0">
+    <input type="checkbox" id="flashLock" checked> lock k after the first ping (measures transfer)
+  </label>
+  <div class="kv"><span>locked k</span><span id="flashK">—</span></div>
   <div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0">
     <button class="btn" id="btnFlashAmbient">1 · Ambient</button>
     <button class="btn" id="btnFlashTorch">2 · Torch</button>
     <button class="btn" id="btnFlashSolve">Solve ping</button>
     <button class="btn" id="btnFlashExport">Export grids</button>
+    <button class="btn warn" id="btnFlashRecal">Recalibrate</button>
   </div>
   <div class="kv"><span>frames</span><span id="flashFrames">—</span></div>
   <div class="kv"><span>depth MAPE</span><span id="flashMape">—</span></div>
   <div class="kv"><span>valid cells</span><span id="flashValid">—</span></div>
   <div class="kv"><span>planes</span><span id="flashPlanes">—</span></div>
   <pre id="flashAscii" style="margin-top:8px;padding:6px;background:#060a12;border:1px solid var(--line);border-radius:6px;font-size:6px;line-height:1.05;letter-spacing:0;color:var(--acc);overflow-x:auto"></pre>
+  <div class="kv" style="margin-top:6px"><span>calibration log</span><span id="flashLogCount">0 rows</span></div>
+  <pre id="flashLog" style="padding:6px;background:#060a12;border:1px solid var(--line);border-radius:6px;font-size:9px;line-height:1.35;color:var(--acc2);overflow-x:auto">(no pings logged yet)</pre>
+  <div style="display:flex;gap:6px;margin-top:4px">
+    <button class="btn" id="btnFlashCopy">Copy rows</button>
+    <button class="btn danger" id="btnFlashClearLog">Clear log</button>
+  </div>
   <div class="muted" id="flashDetail">
     Live ping: start the camera, point the reticle at a flat patch at the
     reference distance, capture an <b>ambient</b> frame, turn the torch on, then
