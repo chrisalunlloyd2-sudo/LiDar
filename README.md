@@ -129,6 +129,57 @@ view so the frontend can show the expected improvement before you move.
 Views are acquired from the inside out (`acquisition_order`), so an early stop
 after two or three views still carries most of the information.
 
+## v2.5 — torch-pulse depth (flash photometric)
+
+`flash_lidar.py` adds the active-light path: pulse the torch, subtract the
+ambient frame, and invert the square law.
+
+```
+ambient I0 + torch I1  ->  D = max(0, I1 - I0)   differential map
+cell mean              ->  S                     additive flux
+reference d0, S0       ->  d = d0 * sqrt(S0/S)   inverse-square range
+N frames               ->  inverse-variance per cell + spread
+grid + intrinsics      ->  3-D ENU/WGS84, PCA planes, catalog match
+```
+
+The flash enters the engine as a first-class `CueEstimate` named
+`flash_falloff`, so `uncertainty.fuse_cues` and its confidence intervals apply
+unchanged. `POST /api/flash/observe` returns the fused depth beside the
+monocular cues.
+
+Measured on the demo scene (96 × 54 = 5,184 cells, 16 seeds):
+
+| metric | value |
+|--------|-------|
+| depth MAPE | **1.93 %** (p90 1.96 %) |
+| per-cell median | 1.62 % |
+| per-cell p90 | 4.12 % |
+| targets found | 2×6 **and** 2×8, 16/16 seeds |
+| runtime | ~0.49 s per frame |
+
+Face widths carry the cell quantisation honestly: the 2×6 measures
+148.6 mm against a true 139.7 mm (**+6.4 %**, 95 % CI ±80.7 mm) and the 2×8
+189.9 mm against 184.2 mm (**+3.1 %**, ±136.8 mm). Matching abstains instead of
+guessing: a face must have a decisive catalog width, an elongated face cannot
+be a can lid, and a card / sheet / brick must match in **both** extents — a
+30 cm strip no longer passes as a credit card.
+
+Mixed albedo is the documented failure. Setting the object faces to 0.30 albedo
+raises MAPE to **3.94 %** (2× the clean run) and the near 2×6 drops out of the
+catalog 16/16, because its 140 mm face reads ~103 mm. The far 2×8 still
+matches — but its range is 35 % too far, so a label is not a measurement.
+
+The forward model had a real bug worth recording: it fed z-depth into the
+square law, so a flat wall rendered as a **sphere of constant range** (plane RMS
+89 mm, offset 1.85 m). The renderer now uses Euclidean range along the ray;
+the same wall fits at 2.000 m with 17 mm RMS.
+
+Calibration needs the reference range and differential flux of a flat patch
+plus a per-cell noise estimate. Reflectance is unobservable from one
+flash/ambient pair, so `albedo_rel_sigma` widens the depth sigma rather than
+pretending the ambiguity away. `python3 flash_lidar.py --demo` prints the grid
+and writes `flash_report.json`.
+
 ## Hardware limits
 
 `python3 -m arena.hardware_probe --processes` measured on the Android 13 /
@@ -193,6 +244,7 @@ camera frame ──► browser canvas analysis ──► POST /api/observe
 | `arena/parallel_arena.py` | process-pool arena (GIL bypass) |
 | `arena/multiview.py` | temporal / aligned / 3-D multi-view refinement |
 | `arena/planner.py` | FOV-capped active view planning + strategy benchmark |
+| `flash_lidar.py` | torch-pulse inverse-square depth, temporal fusion, PCA planes, catalog match |
 | `arena/hardware_probe.py` | CPU/memory/GIL/fusion limits + budget |
 | `server.py` | stdlib `ThreadingHTTPServer` JSON API + page routes |
 | `gui_pages/` | shell + one fragment per page + `app.js` |
@@ -259,6 +311,8 @@ Open `http://<phone-ip>:8790` in Chrome. Allow camera + location + motion.
 7. **Benchmark** reports the MAPE over all fixtures.
 8. **Plan views** derives the visible arc from the current depth and lists the
    offsets to visit plus the predicted error after each one.
+9. **Flash depth** renders the torch-pulse scene, reports depth MAPE and the
+   catalog target, and draws the ASCII depth map.
 
 ## API
 
@@ -280,6 +334,8 @@ Open `http://<phone-ip>:8790` in Chrome. Allow camera + location + motion.
 | POST | `/api/premade` | `{tag, depth_m}` | emulated vs truth + error % |
 | POST | `/api/benchmark` | `{depth_m, noise_frac}` | MAPE + coverage |
 | POST | `/api/plan` | `{depth_m, budget, tag, sigma_px}` | FOV cap + offsets + predicted error per view |
+| POST | `/api/flash` | `{cols, rows, seed}` or `{ambient[], flash[], calibration}` | depth grid, planes, targets, ASCII map |
+| POST | `/api/flash/observe` | observation JSON + grids + `calibration` | flash cue fused with the monocular cues |
 | POST | `/api/demo` | `{room}` | seeded inventory |
 | GET | `/api/map` | `?room=&tag=&limit=` | accepted map points |
 | GET | `/api/inventory` | `?room=&tag=` | items + summary |
@@ -289,7 +345,7 @@ Open `http://<phone-ip>:8790` in Chrome. Allow camera + location + motion.
 
 ```bash
 cd ~/LiDar
-python3 -m pytest tests -q      # 183 tests
+python3 -m pytest tests -q      # 210 tests
 ```
 
 ## Known limitations

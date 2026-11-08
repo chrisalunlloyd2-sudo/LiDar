@@ -10,6 +10,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from server import build_server  # noqa: E402
+import flash_lidar  # noqa: E402
 from models import CameraIntrinsics, CameraPose  # noqa: E402
 from geospatial import enu_to_geodetic  # noqa: E402
 from triangulate import enu_direction_to_pixel  # noqa: E402
@@ -282,6 +283,79 @@ class TestServer(unittest.TestCase):
             request_json(self.base, "POST", "/api/plan", {"depth_m": 0.0})
         self.assertEqual(ctx.exception.code, 422)
         ctx.exception.close()
+
+    def test_flash_demo_endpoint(self):
+        status, body = request_json(self.base, "POST", "/api/flash", {
+            "cols": 48, "rows": 27, "seed": 0,
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(body["cols"], 48)
+        self.assertEqual(body["rows"], 27)
+        self.assertIn("ascii", body)
+        self.assertEqual(len(body["ascii"]), int(round(27 * 0.5)))
+        self.assertAlmostEqual(body["valid_pct"], 100.0)
+        self.assertEqual(body["n_targets"], len(body["targets"]))
+        self.assertIn("mape_pct", body["accuracy"])
+        self.assertNotIn("cells", body)          # trimmed unless asked
+
+    def test_flash_grid_endpoint_uses_supplied_frames(self):
+        intr = flash_lidar.CameraIntrinsics.from_fov(640, 480, 60.0)
+        frame = flash_lidar.render_scene(
+            flash_lidar.FlashScene("wall", [], wall_depth_m=2.0),
+            intr, cols=32, rows=18, seed=0,
+        )
+        cal = flash_lidar.calibrate_scene(frame, intr)
+        status, body = request_json(self.base, "POST", "/api/flash", {
+            "cols": 32, "rows": 18,
+            "ambient": frame["ambient"], "flash": frame["flash"],
+            "intrinsics": {"f_px": intr.f_px, "cx": intr.cx, "cy": intr.cy,
+                           "image_w": intr.image_w, "image_h": intr.image_h,
+                           "fov_deg": 60.0},
+            "calibration": {"reference_depth_m": cal.reference_depth_m,
+                            "reference_delta_dn": cal.reference_delta_dn},
+        })
+        self.assertEqual(status, 200)
+        self.assertIsNone(body["accuracy"])
+        self.assertEqual(body["valid_pct"], 100.0)
+        self.assertEqual(len(body["planes"]), 1)
+        self.assertAlmostEqual(abs(body["planes"][0]["offset_m"]), 2.0,
+                               delta=0.15)
+        self.assertIsNotNone(body["flash_cue"])
+        self.assertEqual(body["flash_cue"]["name"], "flash_falloff")
+
+    def test_flash_grid_requires_calibration(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            request_json(self.base, "POST", "/api/flash", {
+                "cols": 4, "rows": 4, "ambient": [10.0] * 16,
+                "flash": [60.0] * 16,
+            })
+        self.assertEqual(ctx.exception.code, 422)
+        ctx.exception.close()
+
+    def test_flash_observe_fuses_the_flash_cue(self):
+        intr = flash_lidar.CameraIntrinsics.from_fov(640, 480, 60.0)
+        scene = flash_lidar.FlashScene("centred 2x6", [
+            flash_lidar.ScenePatch("2x6", "2x6 lumber", 0.0, 0.0,
+                                   0.1397, 0.62, 1.5),
+        ])
+        cols, rows = 48, 27
+        frame = flash_lidar.render_scene(scene, intr, cols=cols, rows=rows, seed=0)
+        cal = flash_lidar.calibrate_scene(frame, intr)
+        payload = observe_payload(depth_m=1.5)
+        payload.update(cols=cols, rows=rows, intrinsics={
+            "f_px": intr.f_px, "cx": intr.cx, "cy": intr.cy,
+            "image_w": intr.image_w, "image_h": intr.image_h, "fov_deg": 60.0,
+        }, ambient=frame["ambient"], flash=frame["flash"],
+           calibration={"reference_depth_m": cal.reference_depth_m,
+                        "reference_delta_dn": cal.reference_delta_dn})
+        status, body = request_json(self.base, "POST", "/api/flash/observe", payload)
+        self.assertEqual(status, 200)
+        names = [c["name"] for c in body["cues"]]
+        self.assertIn("flash_falloff", names)
+        self.assertAlmostEqual(body["flash_cue"]["depth_m"], 1.5, delta=0.2)
+        self.assertLess(body["estimate"]["ci_low_m"],
+                        body["estimate"]["depth_m"])
+        self.assertAlmostEqual(body["valid_pct"], 100.0)
 
 
 if __name__ == "__main__":

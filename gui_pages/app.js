@@ -22,7 +22,7 @@ const PRESETS = [
 ];
 
 const PAGES = ["controls", "camera", "measure", "geo", "map", "inventory",
-               "illusions", "plan", "arena", "hardware", "settings"];
+               "illusions", "plan", "flash", "arena", "hardware", "settings"];
 
 // ── modular page loading (mmap-backed fragments) ──────────────────────
 async function loadPages() {
@@ -569,6 +569,33 @@ async function runPlan() {
   } catch (e) { setStatus("plan failed: " + e.message, "err"); }
 }
 
+async function runFlash() {
+  const mixed = $("flashAlbedo").value === "mixed";
+  try {
+    const res = await fetch("/api/flash", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        cols: 64, rows: 40, seed: 0, mixed_albedo: mixed,
+        intrinsics: state.intrinsics || makeIntrinsics(720, 1280, 60),
+      }),
+    });
+    const d = await res.json();
+    if (!res.ok || d.error) { setStatus(d.error || "flash failed", "err"); return; }
+    const acc = d.accuracy || {};
+    $("flashMape").textContent = acc.mape_pct == null ? "n/a" : `${acc.mape_pct.toFixed(2)} %`;
+    $("flashValid").textContent = `${d.valid_pct} % of ${d.cols * d.rows}`;
+    $("flashPlanes").textContent = `${d.planes.length} · ${d.n_targets} target(s)`;
+    $("flashAscii").textContent = (d.ascii || []).join("\n");
+    $("flashDetail").textContent = d.n_targets
+      ? d.targets.map((t) => `${t.label} ${t.measured_width_mm} mm ±${t.width_ci95_mm}`).join(" · ")
+      : (mixed
+        ? "mixed albedo: every range is biased by sqrt(albedo ratio) — the matcher abstained, as it should."
+        : "no catalog target matched this depth grid.");
+    setStatus(`Flash depth ${acc.mape_pct == null ? "analysed" : acc.mape_pct.toFixed(2) + " % MAPE"}`
+      + ` — ${d.n_targets} target(s), ${d.planes.length} plane(s).`, "ok");
+  } catch (e) { setStatus("flash failed: " + e.message, "err"); }
+}
+
 async function runArena() {
   setStatus("Running arena…");
   try {
@@ -629,6 +656,7 @@ function bindButtons() {
   $("btnBench").onclick = runBenchmark;
   if ($("btnArena")) $("btnArena").onclick = runArena;
   if ($("btnPlan")) $("btnPlan").onclick = runPlan;
+  if ($("btnFlash")) $("btnFlash").onclick = runFlash;
   if ($("btnHw")) $("btnHw").onclick = probeHw;
   $("btnReset").onclick = resetAll;
 }

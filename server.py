@@ -16,6 +16,8 @@ Serves an mmap-backed modular GUI and a JSON API:
   POST /api/premade         emulate a known premade object, report % error
   POST /api/benchmark       MAPE + CI coverage over all premade fixtures
   POST /api/plan            active view plan for a budget (FOV-capped)
+  POST /api/flash           torch-pulse depth grid (demo scene or supplied grids)
+  POST /api/flash/observe   fuse the flash cue with the monocular depth cues
   POST /api/demo            seed a synthetic room
   GET  /api/map             accepted map points
   GET  /api/inventory       tagged inventory + summary
@@ -43,6 +45,13 @@ from arena.arena import run_arena  # noqa: E402
 from arena.hardware_probe import probe as probe_hardware  # noqa: E402
 from arena.planner import DEFAULT_SIGMA_PX, plan_views  # noqa: E402
 from depth_engine import DepthEngine  # noqa: E402
+from flash_lidar import (  # noqa: E402
+    FlashCalibration,
+    analyse_grid,
+    estimate_with_flash,
+    run_demo as run_flash_demo,
+    valid_fraction,
+)
 from fit_engine import fit_cuboid, fit_rectangle, fit_observation  # noqa: E402
 from fixtures.premade_objects import by_tag, synthesize, truth_dims  # noqa: E402
 from geospatial import project_point, scan_ground  # noqa: E402
@@ -60,7 +69,7 @@ from shapes import classify_shape  # noqa: E402
 from store import Store  # noqa: E402
 from triangulate import triangulate_point, triangulate_size  # noqa: E402
 
-VERSION = "2.4.0"
+VERSION = "2.5.0"
 GUI_DIR = os.path.join(HERE, "gui_pages")
 _DEFAULT_INTR = CameraIntrinsics.from_fov(720, 1280, 60.0)
 
@@ -324,6 +333,10 @@ class LidarHandler(BaseHTTPRequestHandler):
                 return self._send(200, run_arena(quick=True, top_k=3))
             if parsed.path == "/api/plan":
                 return self._handle_plan(payload)
+            if parsed.path == "/api/flash":
+                return self._handle_flash(payload)
+            if parsed.path == "/api/flash/observe":
+                return self._handle_flash_observe(payload)
             if parsed.path == "/api/demo":
                 return self._handle_demo(payload)
             if parsed.path == "/api/reset":
@@ -462,6 +475,48 @@ class LidarHandler(BaseHTTPRequestHandler):
         plan["depth_m"] = depth_m
         return self._send(200, plan)
 
+    def _handle_flash(self, payload):
+        intr = parse_intrinsics(payload)
+        pose = parse_pose(payload) or CameraPose()
+        try:
+            if payload.get("ambient") is not None or payload.get("flash") is not None:
+                cols, rows, ambient, flash = _parse_flash_grids(payload)
+                cal = _parse_flash_calibration(payload)
+                result = analyse_grid(ambient, flash, cols, rows, intr, cal,
+                                      pose=pose,
+                                      level=float(payload.get("level") or 0.95))
+            else:
+                cols = max(2, min(256, int(payload.get("cols") or 96)))
+                rows = max(2, min(256, int(payload.get("rows") or 54)))
+                if cols * rows > MAX_FLASH_CELLS:
+                    raise ValueError("grid too large: cols*rows must be <= %d"
+                                     % MAX_FLASH_CELLS)
+                result = run_flash_demo(cols, rows, bool(payload.get("mixed_albedo")),
+                                        int(payload.get("seed") or 0), width=cols)
+        except ValueError as exc:
+            return self._send(422, {"error": str(exc)})
+        return self._send(200, _flash_payload(result, bool(payload.get("cells"))))
+
+    def _handle_flash_observe(self, payload):
+        try:
+            cols, rows, ambient, flash = _parse_flash_grids(payload)
+            cal = _parse_flash_calibration(payload)
+            obs = parse_observation(payload)
+            merged = estimate_with_flash(obs, ambient, flash, cal, cols, rows,
+                                         level=float(payload.get("level") or 0.95))
+        except ValueError as exc:
+            return self._send(422, {"error": str(exc)})
+        estimate = merged["estimate"]
+        cue = merged["flash_cue"]
+        return self._send(200, {
+            "estimate": asdict(estimate),
+            "cues": [asdict(c) for c in estimate.cues],
+            "flash_cue": asdict(cue) if cue else None,
+            "cols": cols,
+            "rows": rows,
+            "valid_pct": round(valid_fraction(merged["cells"]) * 100, 2),
+        })
+
     def _handle_demo(self, payload):
         intr = parse_intrinsics(payload)
         room = str(payload.get("room") or "basement B")
@@ -500,6 +555,51 @@ def _pairs(corners):
             out.append((float(c.get("u", 0)), float(c.get("v", 0))))
         else:
             out.append((float(c[0]), float(c[1])))
+    return out
+
+
+MAX_FLASH_CELLS = 16384
+
+
+def _parse_flash_grids(payload):
+    """cols, rows, ambient[] and flash[] from a /api/flash request body."""
+    cols = max(2, int(payload.get("cols") or 96))
+    rows = max(2, int(payload.get("rows") or 54))
+    if cols * rows > MAX_FLASH_CELLS:
+        raise ValueError("grid too large: cols*rows must be <= %d" % MAX_FLASH_CELLS)
+    ambient = [float(x) for x in (payload.get("ambient") or [])]
+    flash = [float(x) for x in (payload.get("flash") or [])]
+    if len(ambient) != cols * rows or len(flash) != cols * rows:
+        raise ValueError("ambient and flash must each hold cols*rows values")
+    return cols, rows, ambient, flash
+
+
+def _parse_flash_calibration(payload):
+    raw = payload.get("calibration") or {}
+    depth = _opt_float(raw.get("reference_depth_m"))
+    delta = _opt_float(raw.get("reference_delta_dn"))
+    if not depth or depth <= 0 or not delta or delta <= 0:
+        raise ValueError("calibration.reference_depth_m and .reference_delta_dn "
+                         "must be positive (anchor the light ping first)")
+    return FlashCalibration(
+        reference_depth_m=depth,
+        reference_delta_dn=delta,
+        sigma_delta_dn=float(raw.get("sigma_delta_dn") or 1.0),
+        albedo_rel_sigma=float(raw.get("albedo_rel_sigma") or 0.15),
+        min_depth_m=float(raw.get("min_depth_m") or 0.3),
+        max_depth_m=float(raw.get("max_depth_m") or 8.0),
+    )
+
+
+def _flash_payload(result, include_cells=False):
+    """Trim the flash analysis for the wire: drop the 3-D cloud by default."""
+    out = {key: result.get(key) for key in (
+        "cols", "rows", "valid_pct", "accuracy", "calibration", "ascii",
+        "scene", "mixed_albedo", "targets", "planes", "flash_cue", "level",
+    )}
+    out["n_targets"] = len(result.get("targets") or [])
+    if include_cells:
+        out["cells"] = result.get("cells")
     return out
 
 
