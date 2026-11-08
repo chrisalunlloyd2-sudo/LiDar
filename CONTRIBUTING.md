@@ -24,7 +24,7 @@ rules shape everything else: **pure Python stdlib** and **honest numbers**.
 git clone https://github.com/chrisalunlloyd2-sudo/LiDar.git
 cd LiDar
 python3 --version                 # 3.9+ (developed on 3.14)
-python3 -m pytest tests -q        # 210 tests, ~15 s
+python3 -m pytest tests -q        # 223 tests, ~15 s
 python3 server.py --memory        # http://127.0.0.1:8790
 python3 flash_lidar.py --demo     # torch-pulse depth demo + report
 ```

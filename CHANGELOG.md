@@ -7,7 +7,17 @@ medians over noise seeds, with `n` stated; a single draw is always labelled.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- `tests/test_docs.py`: guards the release docs against drift — `VERSION` must
+  have a CHANGELOG section, `[Unreleased]` must come first, the GUI footer must
+  show the version, and the README must not pin a `.deb` filename.
+
+### Changed
+
+- README manual install resolves the latest tag through the GitHub API instead
+  of hard-coding a version, so it cannot rot; stale test counts refreshed
+  (223).
 
 ## [2.5.2] — 2026-11-08
 

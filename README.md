@@ -324,13 +324,18 @@ The installer downloads the latest release `.deb`, verifies it against the
 published `SHA256SUMS`, and installs it with `pkg`. `lidar --memory` uses a
 throwaway database; the default lives in `~/.lidar/lidarv2.db`.
 
-Manual route if you prefer to see every step:
+Manual route if you prefer to see every step (it resolves the current tag, so it
+never goes stale):
 
 ```bash
-curl -fsSLO https://github.com/chrisalunlloyd2-sudo/LiDar/releases/download/v2.5.1/lidar_2.5.1_all.deb
-curl -fsSLO https://github.com/chrisalunlloyd2-sudo/LiDar/releases/download/v2.5.1/SHA256SUMS
+repo=chrisalunlloyd2-sudo/LiDar
+tag=$(curl -fsSL "https://api.github.com/repos/$repo/releases/latest" \
+  | python3 -c 'import json,sys;print(json.load(sys.stdin)["tag_name"])')
+deb="lidar_${tag#v}_all.deb"
+curl -fsSLO "https://github.com/$repo/releases/download/$tag/$deb"
+curl -fsSLO "https://github.com/$repo/releases/download/$tag/SHA256SUMS"
 sha256sum -c SHA256SUMS --ignore-missing
-pkg install -y ./lidar_2.5.1_all.deb
+pkg install -y "./$deb"
 ```
 
 Build the package yourself with `bash scripts/build_termux_package.sh` — it
@@ -432,7 +437,7 @@ contributions.
 
 ```bash
 cd ~/LiDar
-python3 -m pytest tests -q      # 210 tests
+python3 -m pytest tests -q      # 223 tests
 ```
 
 ## Known limitations
