@@ -180,6 +180,23 @@ flash/ambient pair, so `albedo_rel_sigma` widens the depth sigma rather than
 pretending the ambiguity away. `python3 flash_lidar.py --demo` prints the grid
 and writes `flash_report.json`.
 
+### Live capture (browser)
+
+The **Torch-pulse depth** card runs the ping from the camera. **1 · Ambient**
+scrubs the chosen number of frames (default 3, selectable 1/3/5/7) and keeps the
+per-cell median, so one auto-exposure step or hand shake cannot move the grid;
+**2 · Torch** repeats it with the torch on; **Solve ping** anchors the
+inverse-square gauge on the median differential of the centre box at the
+reference distance you type.
+
+Where the browser exposes `torch` on the video track the app switches it; most
+Chrome/Android builds do not, so toggle the phone torch by hand between the two
+captures. Auto-exposure is the enemy — if the gain changes between phases the
+differential collapses, and the solver refuses a ping whose centre differential
+is under 0.5 DN instead of inventing a range. The scrubbed grids go to
+`/api/flash` for the map and, with a live monocular observation, to
+`/api/flash/observe` for the fused depth ± CI.
+
 ## Hardware limits
 
 `python3 -m arena.hardware_probe --processes` measured on the Android 13 /
@@ -340,6 +357,27 @@ Open `http://<phone-ip>:8790` in Chrome. Allow camera + location + motion.
 | GET | `/api/map` | `?room=&tag=&limit=` | accepted map points |
 | GET | `/api/inventory` | `?room=&tag=` | items + summary |
 | POST | `/api/reset` | `{}` | clears map + inventory |
+
+## Security: secret scrub
+
+`scripts/scrub_secrets.py` is a three-pass, stdlib-only scanner for a repo that
+is about to go public:
+
+```bash
+python3 scripts/scrub_secrets.py                  # tree + history + metadata
+python3 scripts/scrub_secrets.py --history --rev origin/main   # what is published
+python3 scripts/scrub_secrets.py --json scan.json
+```
+
+It flags GitHub / AWS / Slack / Google tokens, private keys, bearer tokens,
+assigned secrets and credential URLs, plus emails, phone numbers and absolute
+home paths. Every match is redacted before printing, so the report itself is
+safe to paste into an issue. Exit code 1 means something was found.
+
+`--rev` scopes the history pass to what is actually on the remote; the default
+`--all` also covers tags and other local-only refs, which is where old
+monorepo blobs hide. Run it before publishing and again after pulling outside
+contributions.
 
 ## Tests
 

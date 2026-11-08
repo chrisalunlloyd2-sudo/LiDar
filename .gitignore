@@ -19,6 +19,9 @@ venv/
 # ── VCS push gate marker ───────────────────────────────
 .vcs_push_pending
 
+# ── Secret-scan output (runtime) ───────────────────────
+.scan_*
+
 # ── OS / editor ─────────────────────────────────────────
 .DS_Store
 *.swp
