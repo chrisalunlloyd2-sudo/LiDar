@@ -18,6 +18,9 @@ medians over noise seeds, with `n` stated; a single draw is always labelled.
   with the CLI.
 - `CALIBRATION.md`: healthy windows, synthetic sweep tables, device procedure
   and a failure-mode matrix.
+- `POST /api/flash/calibrate`: the card now asks the backend for a verdict
+  before ranging and shows `status · centre DN · k`; a dark pair is refused
+  instead of solved.
 
 ### Fixed
 
@@ -27,7 +30,7 @@ medians over noise seeds, with `n` stated; a single draw is always labelled.
 
 ### Changed
 
-- Test suite: 217 tests (was 210).
+- Test suite: 220 tests (was 210).
 
 ## [2.5.0] — 2026-11-07
 

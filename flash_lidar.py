@@ -204,7 +204,8 @@ def calibrate_from_grids(ambient_cells, flash_cells, cols, rows, intrinsics,
     }
     if known_range_m is not None and med > 0:
         cal = FlashCalibration(reference_depth_m=float(known_range_m),
-                               reference_delta_dn=round(med, 3))
+                               reference_delta_dn=round(med, 3),
+                               sigma_delta_dn=1.4)
         out["suggested_calibration"] = cal.as_dict()
         out["suggested_calibration"]["albedo_rel_sigma"] = cal.albedo_rel_sigma
     return out

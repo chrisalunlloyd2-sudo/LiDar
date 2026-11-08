@@ -332,6 +332,50 @@ class TestServer(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 422)
         ctx.exception.close()
 
+    def test_flash_calibrate_endpoint_suggests_a_gauge(self):
+        intr = flash_lidar.CameraIntrinsics.from_fov(640, 480, 60.0)
+        frame = flash_lidar.render_scene(
+            flash_lidar.FlashScene("wall", [], wall_depth_m=1.5),
+            intr, cols=32, rows=18, seed=0,
+        )
+        status, body = request_json(self.base, "POST", "/api/flash/calibrate", {
+            "cols": 32, "rows": 18,
+            "ambient": frame["ambient"], "flash": frame["flash"],
+            "intrinsics": {"f_px": intr.f_px, "cx": intr.cx, "cy": intr.cy,
+                           "image_w": intr.image_w, "image_h": intr.image_h,
+                           "fov_deg": 60.0},
+            "reference_m": 1.5,
+        })
+        self.assertEqual(status, 200)
+        self.assertTrue(body["anchored"])
+        self.assertEqual(body["status"], "ok")
+        self.assertEqual(body["cols"], 32)
+        self.assertGreater(body["centre_median_dn"], 20.0)
+        suggested = body["suggested_calibration"]
+        self.assertEqual(suggested["reference_depth_m"], 1.5)
+        self.assertAlmostEqual(suggested["reference_delta_dn"],
+                               body["centre_median_dn"], places=3)
+        self.assertGreater(suggested["constant"], 0.0)
+
+    def test_flash_calibrate_dark_pair_abstains(self):
+        status, body = request_json(self.base, "POST", "/api/flash/calibrate", {
+            "cols": 8, "rows": 8,
+            "ambient": [10.0] * 64, "flash": [10.0] * 64,
+            "reference_m": 1.0,
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(body["status"], "dark")
+        self.assertIsNone(body["suggested_calibration"])
+
+    def test_flash_calibrate_rejects_wrong_grid_size(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            request_json(self.base, "POST", "/api/flash/calibrate", {
+                "cols": 8, "rows": 8, "ambient": [10.0] * 4,
+                "flash": [60.0] * 4, "reference_m": 1.0,
+            })
+        self.assertEqual(ctx.exception.code, 422)
+        ctx.exception.close()
+
     def test_flash_observe_fuses_the_flash_cue(self):
         intr = flash_lidar.CameraIntrinsics.from_fov(640, 480, 60.0)
         scene = flash_lidar.FlashScene("centred 2x6", [

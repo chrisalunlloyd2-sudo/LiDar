@@ -17,6 +17,7 @@ Serves an mmap-backed modular GUI and a JSON API:
   POST /api/benchmark       MAPE + CI coverage over all premade fixtures
   POST /api/plan            active view plan for a budget (FOV-capped)
   POST /api/flash           torch-pulse depth grid (demo scene or supplied grids)
+  POST /api/flash/calibrate check an ambient/torch pair and suggest the gauge k
   POST /api/flash/observe   fuse the flash cue with the monocular depth cues
   POST /api/demo            seed a synthetic room
   GET  /api/map             accepted map points
@@ -48,6 +49,7 @@ from depth_engine import DepthEngine  # noqa: E402
 from flash_lidar import (  # noqa: E402
     FlashCalibration,
     analyse_grid,
+    calibrate_from_grids,
     estimate_with_flash,
     run_demo as run_flash_demo,
     valid_fraction,
@@ -335,6 +337,8 @@ class LidarHandler(BaseHTTPRequestHandler):
                 return self._handle_plan(payload)
             if parsed.path == "/api/flash":
                 return self._handle_flash(payload)
+            if parsed.path == "/api/flash/calibrate":
+                return self._handle_flash_calibrate(payload)
             if parsed.path == "/api/flash/observe":
                 return self._handle_flash_observe(payload)
             if parsed.path == "/api/demo":
@@ -496,6 +500,18 @@ class LidarHandler(BaseHTTPRequestHandler):
         except ValueError as exc:
             return self._send(422, {"error": str(exc)})
         return self._send(200, _flash_payload(result, bool(payload.get("cells"))))
+
+    def _handle_flash_calibrate(self, payload):
+        try:
+            cols, rows, ambient, flash = _parse_flash_grids(payload)
+            known = _opt_float(payload.get("reference_m"))
+            result = calibrate_from_grids(
+                ambient, flash, cols, rows, parse_intrinsics(payload),
+                known_range_m=known,
+            )
+        except ValueError as exc:
+            return self._send(422, {"error": str(exc)})
+        return self._send(200, result)
 
     def _handle_flash_observe(self, payload):
         try:

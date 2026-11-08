@@ -359,6 +359,7 @@ Open `http://<phone-ip>:8790` in Chrome. Allow camera + location + motion.
 | POST | `/api/benchmark` | `{depth_m, noise_frac}` | MAPE + coverage |
 | POST | `/api/plan` | `{depth_m, budget, tag, sigma_px}` | FOV cap + offsets + predicted error per view |
 | POST | `/api/flash` | `{cols, rows, seed}` or `{ambient[], flash[], calibration}` | depth grid, planes, targets, ASCII map |
+| POST | `/api/flash/calibrate` | `{ambient[], flash[], reference_m}` | centre DN, health verdict, suggested `k` |
 | POST | `/api/flash/observe` | observation JSON + grids + `calibration` | flash cue fused with the monocular cues |
 | POST | `/api/demo` | `{room}` | seeded inventory |
 | GET | `/api/map` | `?room=&tag=&limit=` | accepted map points |

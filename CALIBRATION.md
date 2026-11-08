@@ -113,13 +113,20 @@ Do this before trusting a live range on your phone. It takes about ten minutes.
 3. If the browser exposes torch control the card switches it; otherwise leave
    the torch off for phase 1.
 4. **1 · Ambient** (scrub 3 frames), torch **on**, **2 · Torch**, **Solve ping**.
+   The card asks `/api/flash/calibrate` first and shows the verdict
+   (`ok`/`marginal`/`saturated`/`dark`, centre DN and `k`); a dark pair is
+   refused before any range is computed.
 5. Record what the card reports, then **Export grids** — it downloads
    `flash_grids.json`.
-6. Replay the analysis and get the health verdict:
+6. Replay the analysis and get the same verdict from the shell:
 
    ```bash
    python3 scripts/flash_calibrate.py --grids flash_grids.json --range 1.0
    ```
+
+   The endpoint behind it is `POST /api/flash/calibrate` with
+   `{cols, rows, ambient[], flash[], reference_m}` if you want to drive it from
+   another client.
 
 7. Repeat at 1.5, 2.0 and 3.0 m. A calibration taken at one distance should
    hold at the others; if it does not, the exposure changed between captures.

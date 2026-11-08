@@ -628,17 +628,6 @@ function cellGrid(cols, rows) {
   return grid;
 }
 
-function centreMedian(grid, cols, rows, lo = 0.25, hi = 0.75) {
-  const vals = [];
-  const c0 = Math.floor(cols * lo), c1 = Math.ceil(cols * hi);
-  const r0 = Math.floor(rows * lo), r1 = Math.ceil(rows * hi);
-  for (let r = r0; r < r1; r++) {
-    for (let c = c0; c < c1; c++) vals.push(grid[r * cols + c]);
-  }
-  vals.sort((a, b) => a - b);
-  return vals[Math.floor(vals.length / 2)] || 0;
-}
-
 function flashFramesLabel() {
   const ambient = state.flash.ambient
     ? `ambient ✓${state.flash.ambientSamples ? "×" + state.flash.ambientSamples : ""}`
@@ -752,25 +741,46 @@ async function solveFlashPing() {
     return;
   }
   const refM = parseFloat($("flashRefM").value) || 1.0;
-  const diff = state.flash.ambient.map((a, i) => Math.max(0, state.flash.torch[i] - a));
-  const s0 = centreMedian(diff, FLASH_COLS, FLASH_ROWS);
-  if (!(s0 > 0.5)) {
-    setStatus("No differential in the reticle — torch off, or auto-exposure ate the flash.", "err");
+  const intr = state.intrinsics || makeIntrinsics(720, 1280, 60);
+
+  let verdict;
+  try {
+    const cres = await fetch("/api/flash/calibrate", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        cols: FLASH_COLS, rows: FLASH_ROWS,
+        ambient: state.flash.ambient, flash: state.flash.torch,
+        intrinsics: intr, reference_m: refM,
+      }),
+    });
+    verdict = await cres.json();
+    if (!cres.ok || verdict.error) { setStatus(verdict.error || "calibration failed", "err"); return; }
+  } catch (e) { setStatus("calibration failed: " + e.message, "err"); return; }
+
+  const suggested = verdict.suggested_calibration;
+  const verdictText = `${verdict.status} · ${verdict.centre_median_dn.toFixed(1)} DN`
+    + (suggested ? ` · k ${suggested.constant.toFixed(1)}` : "");
+  if (verdict.status === "dark" || !suggested) {
+    $("flashDetail").textContent = `${verdictText} — ${verdict.warnings.join("; ") || "no anchor"}`;
+    setStatus("Ping refused: " + (verdict.warnings[0] || "no usable differential"), "err");
     return;
   }
+  if (verdict.warnings.length) {
+    $("flashDetail").textContent = `${verdictText} — ${verdict.warnings.join("; ")}`;
+  }
+
   const calibration = {
-    reference_depth_m: refM,
-    reference_delta_dn: s0,
-    sigma_delta_dn: 1.4,
-    albedo_rel_sigma: 0.15,
+    reference_depth_m: suggested.reference_depth_m,
+    reference_delta_dn: suggested.reference_delta_dn,
+    sigma_delta_dn: suggested.sigma_delta_dn,
+    albedo_rel_sigma: suggested.albedo_rel_sigma,
   };
-  const intr = state.intrinsics || makeIntrinsics(720, 1280, 60);
   const grids = {
     cols: FLASH_COLS, rows: FLASH_ROWS,
     ambient: state.flash.ambient, flash: state.flash.torch,
     intrinsics: intr, pose: state.pose, calibration: calibration,
   };
-  setStatus(`Solving light ping — reference ${refM} m at ${s0.toFixed(1)} DN…`);
+  setStatus(`Solving light ping — ${verdictText}, reference ${refM} m…`);
   try {
     const res = await fetch("/api/flash", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -805,7 +815,7 @@ async function solveFlashPing() {
       : "")
       + (fused ? `fused ${fused.estimate.depth_m.toFixed(2)} m `
         + `[${fused.estimate.ci_low_m.toFixed(2)}, ${fused.estimate.ci_high_m.toFixed(2)}] · ` : "")
-      + targetText;
+      + `${verdictText} · ` + targetText;
     setStatus(`Ping solved — ${d.planes.length} plane(s), ${d.n_targets} target(s)`
       + (fused ? `, fused ${fused.estimate.depth_m.toFixed(2)} m.` : "."), "ok");
   } catch (e) { setStatus("flash solve failed: " + e.message, "err"); }
