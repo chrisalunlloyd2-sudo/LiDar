@@ -327,8 +327,8 @@ throwaway database; the default lives in `~/.lidar/lidarv2.db`.
 Manual route if you prefer to see every step:
 
 ```bash
-curl -fsSLO https://github.com/chrisalunlloyd2-sudo/LiDar/releases/latest/download/lidar_2.5.1_all.deb
-curl -fsSLO https://github.com/chrisalunlloyd2-sudo/LiDar/releases/latest/download/SHA256SUMS
+curl -fsSLO https://github.com/chrisalunlloyd2-sudo/LiDar/releases/download/v2.5.1/lidar_2.5.1_all.deb
+curl -fsSLO https://github.com/chrisalunlloyd2-sudo/LiDar/releases/download/v2.5.1/SHA256SUMS
 sha256sum -c SHA256SUMS --ignore-missing
 pkg install -y ./lidar_2.5.1_all.deb
 ```
