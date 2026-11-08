@@ -37,12 +37,13 @@ else
         || die "release has no SHA256SUMS asset"
 
     say "downloading $(basename "$DEB_URL")"
-    curl -fsSL -o "$TMP/lidar.deb" "$DEB_URL" || die "download failed"
+    DEB_NAME="$(basename "$DEB_URL")"
+    curl -fsSL -o "$TMP/$DEB_NAME" "$DEB_URL" || die "download failed"
     curl -fsSL -o "$TMP/SHA256SUMS" "$SUM_URL" || die "checksum download failed"
 
     ( cd "$TMP" && sha256sum -c SHA256SUMS --ignore-missing ) \
         || die "checksum mismatch — refusing to install"
-    DEB="$TMP/lidar.deb"
+    DEB="$TMP/$DEB_NAME"
 fi
 
 say "installing $(basename "$DEB")"
