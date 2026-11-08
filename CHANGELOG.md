@@ -9,6 +9,9 @@ medians over noise seeds, with `n` stated; a single draw is always labelled.
 
 ### Added
 
+- **Guided calibration pass** in the flash card: one button walks 1.0 → 1.5 →
+  2.0 → 3.0 m, clears and re-locks `k` at the first step, advances the reference
+  box after each solve, and reports when the fourth row is logged.
 - `.github/workflows/release.yml`: pushing a `v*` tag (or running it manually
   with a tag) checks that the tag matches `VERSION`, runs the suite, builds the
   Termux package, verifies its control fields, launcher and checksums, and

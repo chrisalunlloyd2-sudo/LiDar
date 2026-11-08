@@ -107,20 +107,22 @@ nearest *valid* cell — the background — and reported ~4.03 m for a 0.75 m bo
 
 Do this before trusting a live range on your phone. It takes about ten minutes.
 The card keeps a log of every ping and copies out rows in the table format, so
-the device table fills itself.
+the device table fills itself. **Guided pass** walks the four distances for you.
 
-1. `python3 server.py` and open the GUI on the phone; start the camera.
-2. Tape-measure a flat, evenly lit wall/patch at **1.0 m**. Type `1.0` in the
-   `reference (true range now)` box and leave **lock k** ticked.
+1. `python3 server.py` (or the installed `lidar`) and open the GUI on the phone;
+   start the camera.
+2. Tape-measure a flat, evenly lit wall/patch at **1.0 m**. Press **Guided
+   pass** — it clears any locked `k`, sets the `reference (true range now)` box
+   to 1.0 m and tells you the step.
 3. **1 · Ambient** (scrub 3 frames), torch **on**, **2 · Torch**, **Solve ping**.
    The card asks `/api/flash/calibrate` for the verdict (`ok`/`marginal`/
-   `saturated`/`dark`, centre DN, `k`), refuses a dark pair, and **locks `k`**
-   at this reference.
-4. Move to **1.5 m**, measure again, type `1.5` in the same box — do **not**
-   press *Recalibrate*. Capture and solve: this ping uses the locked `k`, so the
-   logged error is a genuine transfer error, not a self-fulfilling one.
-5. Repeat at **2.0 m** and **3.0 m**. If the lock is off, each ping re-anchors
-   and every error will read ~0 — useful as a sanity check, useless as a test.
+   `saturated`/`dark`, centre DN, `k`), refuses a dark pair, and **locks `k`**.
+4. Move to **1.5 m**, measure, and press the same three buttons — the pass has
+   already put `1.5` in the box, so this ping uses the locked `k` and the logged
+   error is a genuine transfer error, not a self-fulfilling one.
+5. Repeat at **2.0 m** and **3.0 m**; the pass marks itself complete after the
+   fourth row. If you press **Guided pass** again mid-run it cancels; running
+   unlocked pings instead would re-anchor each time and read ~0 %.
 6. Press **Copy rows** and paste them under *Device results* below. **Recalibrate**
    clears the locked `k` when you change exposure, zoom or camera.
 7. Optional: **Export grids** at each distance and replay the analysis from the

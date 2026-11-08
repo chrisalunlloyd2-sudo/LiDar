@@ -15,6 +15,7 @@ const state = {
   flash: { ambient: null, torch: null },
   flashK: null,
   flashLog: [],
+  flashPass: null,
 };
 state.flashLog = loadFlashLog();
 
@@ -804,6 +805,49 @@ function clearFlashK() {
   setStatus("Locked k cleared — the next ping re-anchors on its reference range.", "ok");
 }
 
+// ── guided calibration pass: 1.0 → 1.5 → 2.0 → 3.0 m ────────────────
+const FLASH_PASS_DISTANCES = [1.0, 1.5, 2.0, 3.0];
+
+function setPassStep() {
+  const p = state.flashPass;
+  const d = FLASH_PASS_DISTANCES[p.index];
+  $("flashRefM").value = d.toFixed(1);
+  $("flashPass").textContent =
+    `step ${p.index + 1}/${FLASH_PASS_DISTANCES.length} · ${d.toFixed(1)} m`;
+}
+
+function startFlashPass() {
+  if (state.flashPass && state.flashPass.active) {
+    state.flashPass.active = false;
+    $("flashPass").textContent = "cancelled";
+    setStatus("Guided pass cancelled.", "ok");
+    return;
+  }
+  state.flashPass = { active: true, index: 0 };
+  state.flashK = null;                     // the first step re-anchors k
+  $("flashK").textContent = "—";
+  $("flashLock").checked = true;
+  setPassStep();
+  setStatus("Guided pass: stand at 1.0 m, then Ambient → Torch → Solve.", "ok");
+}
+
+function advanceFlashPass() {
+  const p = state.flashPass;
+  if (!p || !p.active) return false;
+  p.index += 1;
+  if (p.index >= FLASH_PASS_DISTANCES.length) {
+    p.active = false;
+    $("flashPass").textContent =
+      `complete · ${FLASH_PASS_DISTANCES.length} distances — press Copy rows`;
+    setStatus("Guided pass complete — Copy rows, then paste into CALIBRATION.md.", "ok");
+    return true;
+  }
+  setPassStep();
+  setStatus(`Logged. Next: stand at ${FLASH_PASS_DISTANCES[p.index].toFixed(1)} m, `
+    + "Ambient → Torch → Solve.", "ok");
+  return true;
+}
+
 async function solveFlashPing() {
   if (!state.flash.ambient || !state.flash.torch) {
     setStatus("Capture the ambient frame, then the torch frame.", "err");
@@ -912,6 +956,7 @@ async function solveFlashPing() {
       + `${verdictText} · ` + targetText;
     setStatus(`Ping solved — ${d.planes.length} plane(s), ${d.n_targets} target(s)`
       + (cue ? `, cue ${cue.depth_m.toFixed(2)} m vs ${refM.toFixed(2)} m` : "") + ".", "ok");
+    advanceFlashPass();
   } catch (e) { setStatus("flash solve failed: " + e.message, "err"); }
 }
 
@@ -1010,6 +1055,7 @@ function bindButtons() {
   if ($("btnFlashCopy")) $("btnFlashCopy").onclick = copyFlashLog;
   if ($("btnFlashClearLog")) $("btnFlashClearLog").onclick = clearFlashLog;
   if ($("btnFlashRecal")) $("btnFlashRecal").onclick = clearFlashK;
+  if ($("btnFlashGuide")) $("btnFlashGuide").onclick = startFlashPass;
   if ($("btnHw")) $("btnHw").onclick = probeHw;
   $("btnReset").onclick = resetAll;
 }
