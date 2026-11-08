@@ -338,6 +338,21 @@ writes `lidar_<version>_all.deb`, a tarball and checksums into `dist/`
 (`Architecture: all`, `Depends: python`). Remove it with `pkg uninstall lidar`;
 your database in `~/.lidar/` is left alone.
 
+## Releasing
+
+Tagging publishes the package automatically:
+
+```bash
+# bump VERSION in server.py + the CHANGELOG, commit, then
+git tag -a v2.5.2 -m "v2.5.2 — …"
+git push origin v2.5.2
+```
+
+`.github/workflows/release.yml` refuses a tag that does not match `VERSION`,
+runs the suite, builds the `.deb`, tarball and `SHA256SUMS`, verifies the
+package contents, and attaches them to the release. To re-publish an existing
+tag, run the workflow manually from the Actions tab with its tag input.
+
 ## Run
 
 ```bash

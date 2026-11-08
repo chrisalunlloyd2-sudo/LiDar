@@ -1,0 +1,89 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)build and publish"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  REF: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  package:
+    name: build + publish Termux package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Tag must match VERSION
+        run: |
+          VERSION="$(python3 -c 'import re;print(re.search(r"VERSION = \"([^\"]+)\"", open("server.py").read()).group(1))')"
+          echo "tag=$REF version=$VERSION"
+          test "v$VERSION" = "$REF" || {
+            echo "::error::tag $REF does not match server.py VERSION $VERSION"; exit 1; }
+
+      - name: Install pytest
+        run: python -m pip install --upgrade pip pytest
+
+      - name: Test suite
+        run: python -m pytest tests -q
+
+      - name: Build package
+        run: bash scripts/build_termux_package.sh
+
+      - name: Verify the package
+        run: |
+          dpkg-deb -f dist/lidar_*_all.deb Package Version Architecture Depends
+          dpkg-deb -f dist/lidar_*_all.deb Architecture | grep -qx all
+          dpkg-deb -f dist/lidar_*_all.deb Depends | grep -q python
+          R="$(mktemp -d)"
+          dpkg-deb -x dist/lidar_*_all.deb "$R"
+          LIDAR_HOME="$R/data/data/com.termux/files/usr/share/lidar" \
+            bash "$R/data/data/com.termux/files/usr/bin/lidar" --version
+          ( cd dist && sha256sum -c SHA256SUMS )
+
+      - name: Release notes from CHANGELOG
+        run: |
+          python3 - "$REF" > notes.md <<'PY'
+          import re, sys
+          tag = sys.argv[1].lstrip("v")
+          text = open("CHANGELOG.md", encoding="utf-8").read()
+          match = re.search(r"## \[" + re.escape(tag) + r"\].*?\n(.*?)(?=\n## \[)", text, re.S)
+          body = match.group(1).strip() if match else "See CHANGELOG.md."
+          print(body)
+          print()
+          print("Install on Termux:")
+          print()
+          print("```bash")
+          print("pkg install -y python curl")
+          print("curl -fsSL https://raw.githubusercontent.com/chrisalunlloyd2-sudo/LiDar/main/scripts/termux-install.sh | bash")
+          print("lidar")
+          print("```")
+          print()
+          print("Assets are checksum-verified by the installer before `pkg install`.")
+          PY
+
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "$REF" >/dev/null 2>&1 \
+            || gh release create "$REF" --title "$REF" --notes-file notes.md
+          gh release upload "$REF" \
+            dist/lidar_*_all.deb dist/lidar-*.tar.gz dist/SHA256SUMS --clobber
+          gh release view "$REF" --json assets --jq '.assets[] | .name + "  " + (.digest // "no-digest")'

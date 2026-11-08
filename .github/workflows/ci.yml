@@ -33,6 +33,18 @@ jobs:
       - name: Test suite
         run: python -m pytest tests -q
 
+      - name: Build and verify the Termux package
+        run: |
+          bash scripts/build_termux_package.sh
+          dpkg-deb -f dist/lidar_*_all.deb Package Version Architecture Depends
+          dpkg-deb -f dist/lidar_*_all.deb Architecture | grep -qx all
+          dpkg-deb -f dist/lidar_*_all.deb Depends | grep -q python
+          R="$(mktemp -d)"
+          dpkg-deb -x dist/lidar_*_all.deb "$R"
+          LIDAR_HOME="$R/data/data/com.termux/files/usr/share/lidar" \
+            bash "$R/data/data/com.termux/files/usr/bin/lidar" --version
+          ( cd dist && sha256sum -c SHA256SUMS )
+
       - name: Secret scrub (tree, published history, metadata)
         run: |
           python scripts/scrub_secrets.py \

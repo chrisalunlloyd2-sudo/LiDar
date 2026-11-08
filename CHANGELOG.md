@@ -7,7 +7,14 @@ medians over noise seeds, with `n` stated; a single draw is always labelled.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- `.github/workflows/release.yml`: pushing a `v*` tag (or running it manually
+  with a tag) checks that the tag matches `VERSION`, runs the suite, builds the
+  Termux package, verifies its control fields, launcher and checksums, and
+  publishes the assets to the release.
+- CI now builds and verifies the `.deb` on every push and PR, so packaging
+  regressions (bad permissions, a launcher that cannot start) fail before a tag.
 
 ## [2.5.1] — 2026-11-08
 
