@@ -396,13 +396,13 @@ Open `http://<phone-ip>:8790` in Chrome. Allow camera + location + motion.
 | GET | `/api/illusions` | — | the 5-illusion registry |
 | GET | `/api/hardware` | — | CPU/mem/GIL/fusion limits (10 s cache) |
 | GET | `/api/survivors` | — | arena keep/prune |
-| POST | `/api/arena` | `{}` | run the quick arena |
+| POST | `/api/arena` | `{}` | run the quick arena (30 s cache) |
 | POST | `/api/observe` | observation JSON | depth+CI, 5 illusions, geo, item |
 | POST | `/api/scan` | intrinsics + pose + `cols*rows ≤ 16384` | ground point cloud |
 | POST | `/api/fit` | `corners_px`, `depth_m`, `kind` | rectangle/cuboid fit |
 | POST | `/api/triangulate` | `pose1/pose2`, `uv1/uv2` or `corners1/2` | point / size |
 | POST | `/api/premade` | `{tag, depth_m}` | emulated vs truth + error % |
-| POST | `/api/benchmark` | `{depth_m, noise_frac}` | MAPE + coverage |
+| POST | `/api/benchmark` | `{depth_m, noise_frac}` | MAPE + coverage (30 s cache per arguments) |
 | POST | `/api/plan` | `{depth_m, budget, tag, sigma_px}` | FOV cap + offsets + predicted error per view |
 | POST | `/api/flash` | `{cols, rows, seed}` or `{ambient[], flash[], calibration}` | depth grid, planes, targets, ASCII map |
 | POST | `/api/flash/calibrate` | `{ambient[], flash[], reference_m}` | centre DN, health verdict, suggested `k` |
@@ -449,7 +449,7 @@ contributions.
 
 ```bash
 cd ~/LiDar
-python3 -m pytest tests -q      # 306 tests
+python3 -m pytest tests -q      # 311 tests
 ```
 
 ## Known limitations
