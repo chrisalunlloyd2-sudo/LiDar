@@ -26,6 +26,11 @@ medians over noise seeds, with `n` stated; a single draw is always labelled.
   values return `422` naming the field, instead of failing inside the math or
   emitting non-standard JSON. `budget` outside 1–16 is now rejected rather than
   clamped.
+- Boolean fields are strict: `has_gps`, `fit`, `store`, `mixed_albedo` and
+  `cells` must be JSON `true`/`false`; `"false"`, `0` and other values return
+  `422` instead of being read as true by `bool()`. The `include_rejected` query
+  flag accepts `1/true/yes/on` and `0/false/no/off` and returns `400` for
+  anything else.
 
 ### Changed
 

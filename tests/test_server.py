@@ -338,6 +338,64 @@ class TestServer(unittest.TestCase):
         ambient[7] = float("nan")
         self.assert_rejected("/api/flash", self.flash_grid_payload(ambient=ambient))
 
+    # ── boolean body fields ────────────────────────────────────────────
+    def test_scan_rejects_non_boolean_store(self):
+        for value in ("false", 0, "no"):
+            self.assert_rejected("/api/scan", {"store": value})
+
+    def test_scan_store_false_writes_nothing(self):
+        status, body = request_json(self.base, "POST", "/api/scan", {
+            "intrinsics": {"f_px": 554.256, "cx": 160.0, "cy": 120.0,
+                           "image_w": 320, "image_h": 240, "fov_deg": 60.0},
+            "pose": {"lat": 45.0, "lon": 10.0, "alt_m": 50.0, "heading_deg": 0.0,
+                     "pitch_deg": 0.0, "roll_deg": 0.0, "accuracy_m": 5.0,
+                     "has_gps": True},
+            "camera_height_m": 1.5, "cols": 4, "rows": 3, "store": False,
+            "room": "flag room",
+        })
+        self.assertEqual(status, 200)
+        self.assertGreater(body["count"], 0)
+        status, mapped = request_json(
+            self.base, "GET", "/api/map?room=flag%20room")
+        self.assertEqual(status, 200)
+        self.assertEqual(mapped["count"], 0)
+
+    def test_observe_rejects_non_boolean_fit(self):
+        payload = observe_payload()
+        payload["fit"] = "yes"
+        self.assert_rejected("/api/observe", payload)
+
+    def test_pose_rejects_non_boolean_has_gps(self):
+        payload = observe_payload()
+        payload["pose"]["has_gps"] = "false"   # used to be read as True
+        self.assert_rejected("/api/observe", payload)
+
+    def test_has_gps_false_yields_no_geopoint(self):
+        payload = observe_payload()
+        payload["pose"]["has_gps"] = False
+        status, body = request_json(self.base, "POST", "/api/observe", payload)
+        self.assertEqual(status, 200)
+        self.assertIsNone(body["geo"])
+
+    def test_flash_rejects_non_boolean_flags(self):
+        self.assert_rejected("/api/flash", {"cols": 48, "rows": 27,
+                                            "mixed_albedo": "false"})
+        self.assert_rejected("/api/flash", {"cols": 48, "rows": 27,
+                                            "cells": "true"})
+
+    def test_map_rejects_unknown_include_rejected(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            request_json(self.base, "GET", "/api/map?include_rejected=maybe")
+        self.assertEqual(ctx.exception.code, 400)
+        ctx.exception.close()
+
+    def test_map_accepts_query_boolean_words(self):
+        for word in ("1", "true", "yes", "on", "0", "false", "no", "off"):
+            status, body = request_json(
+                self.base, "GET", "/api/map?include_rejected=" + word)
+            self.assertEqual(status, 200)
+            self.assertIn("points", body)
+
     # ── modular mmap GUI ───────────────────────────────────────────────
     def test_pages_listed(self):
         status, body = request_json(self.base, "GET", "/api/pages")

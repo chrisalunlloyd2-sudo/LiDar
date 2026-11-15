@@ -131,6 +131,32 @@ def _level(value, default=0.95):
     return _number(value, default, "level", lo=0.01, hi=0.9999)
 
 
+def _flag(value, default=False, name="flag"):
+    """Strict JSON boolean: the string "false" is a client bug, not False."""
+    if value is None or value == "":
+        return default
+    if isinstance(value, bool):
+        return value
+    raise BadRequest("%s must be true or false" % name)
+
+
+_TRUE_WORDS = ("1", "true", "yes", "on")
+_FALSE_WORDS = ("0", "false", "no", "off")
+
+
+def _query_flag(value, default=False, name="flag"):
+    """Boolean from a query string; only the listed words are accepted."""
+    if value is None or value == "":
+        return default
+    word = str(value).strip().lower()
+    if word in _TRUE_WORDS:
+        return True
+    if word in _FALSE_WORDS:
+        return False
+    raise BadRequest("%s must be one of: %s" % (
+        name, ", ".join(_TRUE_WORDS + _FALSE_WORDS)))
+
+
 def _bounded_int(value, default, lo, hi, name):
     """Parse a request integer, refusing anything outside [lo, hi]."""
     if isinstance(value, bool):
@@ -195,7 +221,7 @@ def parse_pose(payload):
         pitch_deg=_number(p.get("pitch_deg"), 0.0, "pose.pitch_deg"),
         roll_deg=_number(p.get("roll_deg"), 0.0, "pose.roll_deg"),
         accuracy_m=_number(p.get("accuracy_m"), 8.0, "pose.accuracy_m", lo=0.0),
-        has_gps=bool(p.get("has_gps", False)),
+        has_gps=_flag(p.get("has_gps"), False, "pose.has_gps"),
     )
 
 
@@ -401,12 +427,14 @@ class LidarHandler(BaseHTTPRequestHandler):
             try:
                 limit = _bounded_int(_first(q, "limit"), 500, 1,
                                      MAX_MAP_LIMIT, "limit")
+                include_rejected = _query_flag(
+                    _first(q, "include_rejected"), False, "include_rejected")
             except ValueError as exc:
                 return self._send(400, {"error": str(exc)})
             points = self.server.store.list_map_points(
                 room=_first(q, "room"), tag=_first(q, "tag"),
                 limit=limit,
-                include_rejected=_first(q, "include_rejected") in ("1", "true", "yes"),
+                include_rejected=include_rejected,
             )
             return self._send(200, {"count": len(points), "points": points})
         if path == "/api/inventory":
@@ -468,7 +496,7 @@ class LidarHandler(BaseHTTPRequestHandler):
             obs, self.server.store, self.server.engine,
             level=_level(payload.get("level")),
             session=str(payload.get("session") or "default"),
-            do_fit=bool(payload.get("fit")),
+            do_fit=_flag(payload.get("fit"), False, "fit"),
         )
         return self._send(200 if "error" not in result else 422, result)
 
@@ -485,7 +513,7 @@ class LidarHandler(BaseHTTPRequestHandler):
         except ValueError as exc:
             return self._send(422, {"error": str(exc)})
         points = scan_ground(pose, intr, camera_height, cols=cols, rows=rows)
-        if payload.get("store", True):
+        if _flag(payload.get("store"), True, "store"):
             room = str(payload.get("room") or "unknown")
             now = time.time()
             self.server.store.add_map_points([{
@@ -614,13 +642,16 @@ class LidarHandler(BaseHTTPRequestHandler):
                 if cols * rows > MAX_FLASH_CELLS:
                     raise ValueError("grid too large: cols*rows must be <= %d"
                                      % MAX_FLASH_CELLS)
-                result = run_flash_demo(cols, rows, bool(payload.get("mixed_albedo")),
+                result = run_flash_demo(cols, rows,
+                                        _flag(payload.get("mixed_albedo"), False,
+                                              "mixed_albedo"),
                                         _bounded_int(payload.get("seed"), 0,
                                                      0, 2 ** 31 - 1, "seed"),
                                         width=cols)
         except ValueError as exc:
             return self._send(422, {"error": str(exc)})
-        return self._send(200, _flash_payload(result, bool(payload.get("cells"))))
+        return self._send(200, _flash_payload(
+            result, _flag(payload.get("cells"), False, "cells")))
 
     def _handle_flash_calibrate(self, payload):
         try:
