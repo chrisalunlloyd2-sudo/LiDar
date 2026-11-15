@@ -18,6 +18,14 @@ medians over noise seeds, with `n` stated; a single draw is always labelled.
   `cols`/`rows` (1–256 each, at most 16 384 cells) instead of raising inside
   the handler. `?limit=abc` used to drop the connection with no reply, and an
   unbounded grid could spin the sweep for hours.
+- Every numeric body field is validated before it reaches an engine: intrinsics
+  (`image_w`/`image_h` 1–16384, `fov_deg` 1–179, `f_px` 1–1e6), pose latitude
+  ±90 / longitude ±180 / `accuracy_m` ≥ 0, `level` 0.01–0.9999, depths and
+  `sigma_px` positive, cue densities 0–1, `budget` 1–16, and finite flash grid
+  cells and calibration fields. Non-numbers, `NaN`/`Infinity` and out-of-range
+  values return `422` naming the field, instead of failing inside the math or
+  emitting non-standard JSON. `budget` outside 1–16 is now rejected rather than
+  clamped.
 
 ### Changed
 

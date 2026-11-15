@@ -237,6 +237,107 @@ class TestServer(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(mapped["count"], body["count"])
 
+    # ── numeric body fields ────────────────────────────────────────────
+    def assert_rejected(self, path, payload, code=422):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            request_json(self.base, "POST", path, payload)
+        self.assertEqual(ctx.exception.code, code,
+                         ctx.exception.read().decode("utf-8"))
+        ctx.exception.close()
+
+    def test_scan_rejects_non_numeric_intrinsics(self):
+        for value in ("wide", -5, 0, float("nan")):
+            self.assert_rejected("/api/scan", {"intrinsics": {"f_px": value}})
+
+    def test_scan_rejects_non_numeric_camera_height(self):
+        for value in ("high", -1, 0, float("inf")):
+            self.assert_rejected("/api/scan", {"camera_height_m": value})
+
+    def test_observe_rejects_out_of_range_pose(self):
+        for key, value in (("lat", 91.0), ("lon", -181.0), ("accuracy_m", -1.0)):
+            payload = observe_payload()
+            payload["pose"][key] = value
+            self.assert_rejected("/api/observe", payload)
+
+    def test_observe_rejects_non_numeric_pose_accuracy(self):
+        payload = observe_payload()
+        payload["pose"]["accuracy_m"] = "high"
+        self.assert_rejected("/api/observe", payload)
+
+    def test_observe_rejects_out_of_range_level(self):
+        for value in (0.0, 1.5, float("nan")):
+            self.assert_rejected("/api/observe", {"level": value})
+
+    def test_observe_rejects_non_finite_optional_cue(self):
+        for key in ("known_width_mm", "texture_density", "specular"):
+            payload = observe_payload()
+            payload[key] = float("nan")
+            self.assert_rejected("/api/observe", payload)
+
+    def test_observe_rejects_out_of_range_cue(self):
+        for key, value in (("texture_density", 2.0), ("object_px_width", -4.0)):
+            payload = observe_payload()
+            payload[key] = value
+            self.assert_rejected("/api/observe", payload)
+
+    def test_fit_rejects_malformed_corners(self):
+        self.assert_rejected("/api/fit", {"corners_px": "nope"})
+        self.assert_rejected("/api/fit", {"corners_px": [[1.0, 2.0], [3.0]]})
+        self.assert_rejected("/api/fit", {"corners_px": [{"u": "left", "v": 2}]})
+
+    def test_fit_rejects_non_positive_depth(self):
+        corners = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]
+        for depth in (0, -2.0, "far"):
+            self.assert_rejected("/api/fit", {"corners_px": corners, "depth_m": depth})
+
+    def test_triangulate_rejects_malformed_uv(self):
+        self.assert_rejected("/api/triangulate", {
+            "pose1": {"lat": 0.0}, "pose2": {"lat": 0.001},
+            "uv1": [1.0], "uv2": [1.0, 2.0],
+        })
+
+    def test_premade_rejects_bad_noise(self):
+        for value in (-0.5, 2.0, float("nan")):
+            self.assert_rejected("/api/premade", {"noise_frac": value})
+
+    def test_benchmark_rejects_non_numeric_depth(self):
+        self.assert_rejected("/api/benchmark", {"depth_m": "deep"})
+
+    def test_plan_rejects_bad_budget(self):
+        for value in ("many", 0, 99):
+            self.assert_rejected("/api/plan", {"budget": value})
+
+    def test_plan_rejects_non_positive_sigma(self):
+        for value in (0, -1.0, float("nan")):
+            self.assert_rejected("/api/plan", {"sigma_px": value})
+
+    def flash_grid_payload(self, **extra):
+        payload = {"cols": 4, "rows": 4,
+                   "ambient": [10.0] * 16, "flash": [60.0] * 16,
+                   "calibration": {"reference_depth_m": 1.0,
+                                   "reference_delta_dn": 50.0}}
+        payload.update(extra)
+        return payload
+
+    def test_flash_rejects_out_of_range_level(self):
+        self.assert_rejected("/api/flash", self.flash_grid_payload(level=2.0))
+
+    def test_flash_rejects_non_finite_calibration(self):
+        for key, value in (("reference_delta_dn", float("inf")),
+                           ("sigma_delta_dn", float("nan")),
+                           ("min_depth_m", -1.0)):
+            cal = dict(self.flash_grid_payload()["calibration"])
+            cal[key] = value
+            self.assert_rejected("/api/flash", self.flash_grid_payload(calibration=cal))
+        inverted = dict(self.flash_grid_payload()["calibration"],
+                        min_depth_m=5.0, max_depth_m=2.0)
+        self.assert_rejected("/api/flash", self.flash_grid_payload(calibration=inverted))
+
+    def test_flash_rejects_non_finite_cell(self):
+        ambient = [10.0] * 16
+        ambient[7] = float("nan")
+        self.assert_rejected("/api/flash", self.flash_grid_payload(ambient=ambient))
+
     # ── modular mmap GUI ───────────────────────────────────────────────
     def test_pages_listed(self):
         status, body = request_json(self.base, "GET", "/api/pages")

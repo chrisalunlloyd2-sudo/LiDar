@@ -88,57 +88,113 @@ class PayloadTooLarge(ValueError):
     """Request body longer than MAX_BODY_BYTES."""
 
 
-def _opt_float(value):
+class BadRequest(ValueError):
+    """A semantically invalid field in an otherwise well-formed request."""
+
+
+_REQUIRED = object()
+
+
+def _number(value, default=_REQUIRED, name="value", lo=None, hi=None):
+    """Parse a finite request float, refusing non-numbers and out-of-range.
+
+    Absent/empty values fall back to `default`; `default` may be `_REQUIRED`
+    to make the field mandatory. JSON `true` is not a number.
+    """
+    if isinstance(value, bool):
+        raise BadRequest("%s must be a number" % name)
+    if value is None or value == "":
+        if default is _REQUIRED:
+            raise BadRequest("%s is required" % name)
+        return default
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        raise BadRequest("%s must be a number" % name)
+    if not math.isfinite(number):
+        raise BadRequest("%s must be finite" % name)
+    if lo is not None and number < lo:
+        raise BadRequest("%s must be >= %g" % (name, lo))
+    if hi is not None and number > hi:
+        raise BadRequest("%s must be <= %g" % (name, hi))
+    return number
+
+
+def _opt_float(value, name="value", lo=None, hi=None):
     if value is None or value == "":
         return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
+    return _number(value, None, name, lo=lo, hi=hi)
+
+
+def _level(value, default=0.95):
+    """Confidence level, bounded to the range the CI math actually uses."""
+    return _number(value, default, "level", lo=0.01, hi=0.9999)
 
 
 def _bounded_int(value, default, lo, hi, name):
     """Parse a request integer, refusing anything outside [lo, hi]."""
+    if isinstance(value, bool):
+        raise BadRequest("%s must be an integer" % name)
     if value is None or value == "":
         return default
     try:
         number = int(value)
     except (TypeError, ValueError):
-        raise ValueError("%s must be an integer" % name)
+        raise BadRequest("%s must be an integer" % name)
     if not lo <= number <= hi:
-        raise ValueError("%s must be in [%d, %d]" % (name, lo, hi))
+        raise BadRequest("%s must be in [%d, %d]" % (name, lo, hi))
     return number
 
 
+def _pick(primary, fallback, key):
+    """First non-empty value, preferring the nested object over the payload."""
+    for source in (primary, fallback):
+        if not source:
+            continue
+        value = source.get(key)
+        if value is not None and value != "":
+            return value
+    return None
+
+
 def parse_intrinsics(payload):
-    intr = payload.get("intrinsics") or {}
-    image_w = int(intr.get("image_w") or payload.get("image_w") or 720)
-    image_h = int(intr.get("image_h") or payload.get("image_h") or 1280)
-    fov = float(intr.get("fov_deg") or payload.get("fov_deg") or 60.0)
-    if intr.get("f_px"):
-        return CameraIntrinsics(
-            f_px=float(intr["f_px"]),
-            cx=float(intr.get("cx", image_w / 2.0)),
-            cy=float(intr.get("cy", image_h / 2.0)),
-            image_w=image_w,
-            image_h=image_h,
-            fov_deg=fov,
-        )
-    return CameraIntrinsics.from_fov(image_w, image_h, fov)
+    intr = payload.get("intrinsics")
+    if intr is None:
+        intr = {}
+    elif not isinstance(intr, dict):
+        raise BadRequest("intrinsics must be an object")
+    image_w = _bounded_int(_pick(intr, payload, "image_w"), 720, 1, 16384, "image_w")
+    image_h = _bounded_int(_pick(intr, payload, "image_h"), 1280, 1, 16384, "image_h")
+    fov = _number(_pick(intr, payload, "fov_deg"), 60.0, "fov_deg", lo=1.0, hi=179.0)
+    f_px = _opt_float(_pick(intr, None, "f_px"), "f_px", lo=1.0, hi=1e6)
+    if f_px is None:
+        return CameraIntrinsics.from_fov(image_w, image_h, fov)
+    return CameraIntrinsics(
+        f_px=f_px,
+        cx=_number(intr.get("cx"), image_w / 2.0, "cx"),
+        cy=_number(intr.get("cy"), image_h / 2.0, "cy"),
+        image_w=image_w,
+        image_h=image_h,
+        fov_deg=fov,
+    )
 
 
 def parse_pose(payload):
-    p = payload.get("pose") or {}
+    p = payload.get("pose")
+    if p is None:
+        return None
+    if not isinstance(p, dict):
+        raise BadRequest("pose must be an object")
     if not p:
         return None
     return CameraPose(
-        lat=float(p.get("lat", 0.0)),
-        lon=float(p.get("lon", 0.0)),
-        alt_m=float(p.get("alt_m", 0.0)),
-        heading_deg=float(p.get("heading_deg", 0.0)),
-        pitch_deg=float(p.get("pitch_deg", 0.0)),
-        roll_deg=float(p.get("roll_deg", 0.0)),
-        accuracy_m=float(p.get("accuracy_m", 8.0)),
+        lat=_number(p.get("lat"), 0.0, "pose.lat", lo=-90.0, hi=90.0),
+        lon=_number(p.get("lon"), 0.0, "pose.lon", lo=-180.0, hi=180.0),
+        alt_m=_number(p.get("alt_m"), 0.0, "pose.alt_m"),
+        heading_deg=_number(p.get("heading_deg"), 0.0, "pose.heading_deg"),
+        pitch_deg=_number(p.get("pitch_deg"), 0.0, "pose.pitch_deg"),
+        roll_deg=_number(p.get("roll_deg"), 0.0, "pose.roll_deg"),
+        accuracy_m=_number(p.get("accuracy_m"), 8.0, "pose.accuracy_m", lo=0.0),
         has_gps=bool(p.get("has_gps", False)),
     )
 
@@ -146,23 +202,28 @@ def parse_pose(payload):
 def parse_observation(payload):
     intr = parse_intrinsics(payload)
     return Observation(
-        object_px_width=float(payload.get("object_px_width") or 0.0),
-        object_px_height=float(payload.get("object_px_height") or 0.0),
-        center_x=float(payload.get("center_x", intr.cx)),
-        center_y=float(payload.get("center_y", intr.cy)),
+        object_px_width=_number(payload.get("object_px_width"), 0.0,
+                                "object_px_width", lo=0.0),
+        object_px_height=_number(payload.get("object_px_height"), 0.0,
+                                 "object_px_height", lo=0.0),
+        center_x=_number(payload.get("center_x"), intr.cx, "center_x"),
+        center_y=_number(payload.get("center_y"), intr.cy, "center_y"),
         intrinsics=intr,
         pose=parse_pose(payload),
-        known_width_mm=_opt_float(payload.get("known_width_mm")),
+        known_width_mm=_opt_float(payload.get("known_width_mm"),
+                                  "known_width_mm", lo=0.01, hi=100000.0),
         object_class=str(payload.get("object_class") or "unknown"),
-        camera_height_m=float(payload.get("camera_height_m") or 1.5),
-        texture_density=_opt_float(payload.get("texture_density")),
-        sharpness=_opt_float(payload.get("sharpness")),
-        convergence=_opt_float(payload.get("convergence")),
-        arrowhead=_opt_float(payload.get("arrowhead")),
-        specular=_opt_float(payload.get("specular")),
-        contrast=_opt_float(payload.get("contrast")),
+        camera_height_m=_number(payload.get("camera_height_m"), 1.5,
+                                "camera_height_m", lo=0.01, hi=1000.0),
+        texture_density=_opt_float(payload.get("texture_density"),
+                                   "texture_density", lo=0.0, hi=1.0),
+        sharpness=_opt_float(payload.get("sharpness"), "sharpness", lo=0.0, hi=1.0),
+        convergence=_opt_float(payload.get("convergence"), "convergence", lo=0.0, hi=1.0),
+        arrowhead=_opt_float(payload.get("arrowhead"), "arrowhead", lo=0.0, hi=1.0),
+        specular=_opt_float(payload.get("specular"), "specular", lo=0.0, hi=1.0),
+        contrast=_opt_float(payload.get("contrast"), "contrast", lo=0.0, hi=1.0),
         room=str(payload.get("room") or "unknown"),
-        timestamp=float(payload.get("timestamp") or time.time()),
+        timestamp=_number(payload.get("timestamp"), time.time(), "timestamp", lo=0.0),
     )
 
 
@@ -396,6 +457,8 @@ class LidarHandler(BaseHTTPRequestHandler):
                 self.server.store.reset()
                 return self._send(200, {"ok": True})
             return self._send(404, {"error": "not found"})
+        except BadRequest as exc:
+            return self._send(422, {"error": str(exc)})
         except Exception as exc:
             return self._send(500, {"error": "%s: %s" % (type(exc).__name__, exc)})
 
@@ -403,7 +466,7 @@ class LidarHandler(BaseHTTPRequestHandler):
         obs = parse_observation(payload)
         result = process_observation(
             obs, self.server.store, self.server.engine,
-            level=float(payload.get("level") or 0.95),
+            level=_level(payload.get("level")),
             session=str(payload.get("session") or "default"),
             do_fit=bool(payload.get("fit")),
         )
@@ -412,7 +475,8 @@ class LidarHandler(BaseHTTPRequestHandler):
     def _handle_scan(self, payload):
         intr = parse_intrinsics(payload)
         pose = parse_pose(payload) or CameraPose()
-        camera_height = float(payload.get("camera_height_m") or 1.5)
+        camera_height = _number(payload.get("camera_height_m"), 1.5,
+                                "camera_height_m", lo=0.01, hi=1000.0)
         try:
             cols = _bounded_int(payload.get("cols"), 24, 1, 256, "cols")
             rows = _bounded_int(payload.get("rows"), 16, 1, 256, "rows")
@@ -438,17 +502,13 @@ class LidarHandler(BaseHTTPRequestHandler):
 
     def _handle_fit(self, payload):
         intr = parse_intrinsics(payload)
-        corners = payload.get("corners_px") or []
-        pts = []
-        for c in corners:
-            if isinstance(c, dict):
-                pts.append((float(c.get("u", 0)), float(c.get("v", 0))))
-            else:
-                pts.append((float(c[0]), float(c[1])))
-        depth_m = float(payload.get("depth_m") or 2.0)
+        pts = _pairs(payload.get("corners_px") or [], "corners_px")
+        depth_m = _number(payload.get("depth_m"), 2.0, "depth_m", lo=0.01, hi=1000.0)
         kind = str(payload.get("kind") or "rectangle")
         if kind == "cuboid" and len(pts) >= 8:
-            result = fit_cuboid(pts, intr, float(payload.get("distance_m") or depth_m))
+            distance_m = _number(payload.get("distance_m"), depth_m,
+                                 "distance_m", lo=0.01, hi=1000.0)
+            result = fit_cuboid(pts, intr, distance_m)
         else:
             result = fit_rectangle(pts, intr, depth_m)
         if result is None:
@@ -462,8 +522,8 @@ class LidarHandler(BaseHTTPRequestHandler):
         if pose1 is None or pose2 is None:
             return self._send(422, {"error": "pose1 and pose2 required"})
         if payload.get("corners1") and payload.get("corners2"):
-            size = triangulate_size(pose1, _pairs(payload["corners1"]),
-                                    pose2, _pairs(payload["corners2"]), intr)
+            size = triangulate_size(pose1, _pairs(payload["corners1"], "corners1"),
+                                    pose2, _pairs(payload["corners2"], "corners2"), intr)
             if size is None:
                 return self._send(422, {"error": "triangulation failed"})
             return self._send(200, size)
@@ -471,7 +531,8 @@ class LidarHandler(BaseHTTPRequestHandler):
         uv2 = payload.get("uv2")
         if not uv1 or not uv2:
             return self._send(422, {"error": "provide corners1/corners2 or uv1/uv2"})
-        point = triangulate_point(pose1, uv1, pose2, uv2, intr)
+        point = triangulate_point(pose1, _pixel(uv1, "uv1"),
+                                  pose2, _pixel(uv2, "uv2"), intr)
         if point is None:
             return self._send(422, {"error": "triangulation failed"})
         return self._send(200, point)
@@ -481,12 +542,14 @@ class LidarHandler(BaseHTTPRequestHandler):
         if obj is None:
             return self._send(404, {"error": "unknown premade tag"})
         intr = parse_intrinsics(payload)
-        depth_m = float(payload.get("depth_m") or 2.0)
+        depth_m = _number(payload.get("depth_m"), 2.0, "depth_m", lo=0.01, hi=1000.0)
         room = str(payload.get("room") or "premade")
+        noise_frac = _number(payload.get("noise_frac"), 0.0,
+                             "noise_frac", lo=0.0, hi=1.0)
         obs = synthesize(obj, depth_m, intrinsics=intr, room=room,
-                         noise_frac=float(payload.get("noise_frac") or 0.0))
+                         noise_frac=noise_frac)
         result = process_observation(obs, self.server.store, self.server.engine,
-                                     level=float(payload.get("level") or 0.95),
+                                     level=_level(payload.get("level")),
                                      session="premade")
         truth = truth_dims(obj)
         corrected = result.get("corrected_dimensions_mm", {})
@@ -504,23 +567,23 @@ class LidarHandler(BaseHTTPRequestHandler):
 
     def _handle_benchmark(self, payload):
         report = run_benchmark(
-            depth_m=float(payload.get("depth_m") or 2.0),
-            noise_frac=float(payload.get("noise_frac") or 0.0),
-            level=float(payload.get("level") or 0.95),
+            depth_m=_number(payload.get("depth_m"), 2.0, "depth_m", lo=0.01, hi=1000.0),
+            noise_frac=_number(payload.get("noise_frac"), 0.0,
+                               "noise_frac", lo=0.0, hi=1.0),
+            level=_level(payload.get("level")),
             intrinsics=parse_intrinsics(payload) if payload.get("intrinsics") else None,
         )
         return self._send(200, report)
 
     def _handle_plan(self, payload):
-        raw_depth = _opt_float(payload.get("depth_m"))
-        depth_m = 2.0 if raw_depth is None else raw_depth
-        if depth_m <= 0:
-            return self._send(422, {"error": "depth_m must be positive"})
-        budget = max(1, min(16, int(payload.get("budget") or 6)))
+        depth_m = _number(payload.get("depth_m"), 2.0, "depth_m", lo=0.01, hi=1000.0)
+        budget = _bounded_int(payload.get("budget"), 6, 1, 16, "budget")
         tag = str(payload.get("tag") or "")
         obj = by_tag(tag) if tag else None
-        w_mm = _opt_float(payload.get("object_w_mm"))
-        h_mm = _opt_float(payload.get("object_h_mm"))
+        w_mm = _opt_float(payload.get("object_w_mm"), "object_w_mm",
+                          lo=0.0, hi=100000.0)
+        h_mm = _opt_float(payload.get("object_h_mm"), "object_h_mm",
+                          lo=0.0, hi=100000.0)
         if obj is not None:
             w_mm = obj["w_mm"] if w_mm is None else w_mm
             h_mm = obj["h_mm"] if h_mm is None else h_mm
@@ -528,7 +591,8 @@ class LidarHandler(BaseHTTPRequestHandler):
             parse_intrinsics(payload), depth_m, budget,
             object_w_mm=w_mm or 0.0,
             object_h_mm=h_mm or 88.9,
-            sigma_px=float(payload.get("sigma_px") or DEFAULT_SIGMA_PX),
+            sigma_px=_number(payload.get("sigma_px"), DEFAULT_SIGMA_PX,
+                             "sigma_px", lo=0.001, hi=100.0),
         )
         plan["tag"] = obj["tag"] if obj is not None else None
         plan["depth_m"] = depth_m
@@ -543,15 +607,17 @@ class LidarHandler(BaseHTTPRequestHandler):
                 cal = _parse_flash_calibration(payload)
                 result = analyse_grid(ambient, flash, cols, rows, intr, cal,
                                       pose=pose,
-                                      level=float(payload.get("level") or 0.95))
+                                      level=_level(payload.get("level")))
             else:
-                cols = max(2, min(256, int(payload.get("cols") or 96)))
-                rows = max(2, min(256, int(payload.get("rows") or 54)))
+                cols = _bounded_int(payload.get("cols"), 96, 2, 256, "cols")
+                rows = _bounded_int(payload.get("rows"), 54, 2, 256, "rows")
                 if cols * rows > MAX_FLASH_CELLS:
                     raise ValueError("grid too large: cols*rows must be <= %d"
                                      % MAX_FLASH_CELLS)
                 result = run_flash_demo(cols, rows, bool(payload.get("mixed_albedo")),
-                                        int(payload.get("seed") or 0), width=cols)
+                                        _bounded_int(payload.get("seed"), 0,
+                                                     0, 2 ** 31 - 1, "seed"),
+                                        width=cols)
         except ValueError as exc:
             return self._send(422, {"error": str(exc)})
         return self._send(200, _flash_payload(result, bool(payload.get("cells"))))
@@ -559,7 +625,8 @@ class LidarHandler(BaseHTTPRequestHandler):
     def _handle_flash_calibrate(self, payload):
         try:
             cols, rows, ambient, flash = _parse_flash_grids(payload)
-            known = _opt_float(payload.get("reference_m"))
+            known = _opt_float(payload.get("reference_m"), "reference_m",
+                               lo=0.01, hi=1000.0)
             result = calibrate_from_grids(
                 ambient, flash, cols, rows, parse_intrinsics(payload),
                 known_range_m=known,
@@ -574,7 +641,7 @@ class LidarHandler(BaseHTTPRequestHandler):
             cal = _parse_flash_calibration(payload)
             obs = parse_observation(payload)
             merged = estimate_with_flash(obs, ambient, flash, cal, cols, rows,
-                                         level=float(payload.get("level") or 0.95))
+                                         level=_level(payload.get("level")))
         except ValueError as exc:
             return self._send(422, {"error": str(exc)})
         estimate = merged["estimate"]
@@ -619,14 +686,21 @@ def _first(query, key):
     return values[0] if values else None
 
 
-def _pairs(corners):
-    out = []
-    for c in corners:
-        if isinstance(c, dict):
-            out.append((float(c.get("u", 0)), float(c.get("v", 0))))
-        else:
-            out.append((float(c[0]), float(c[1])))
-    return out
+def _pixel(value, name):
+    """One (u, v) pair from `[u, v]` or `{u, v}`; both numbers are required."""
+    if isinstance(value, dict):
+        return (_number(value.get("u"), name=name + ".u"),
+                _number(value.get("v"), name=name + ".v"))
+    if not isinstance(value, (list, tuple)) or len(value) < 2:
+        raise BadRequest("%s must be [u, v]" % name)
+    return (_number(value[0], name=name + ".u"),
+            _number(value[1], name=name + ".v"))
+
+
+def _pairs(corners, name="corners"):
+    if not isinstance(corners, list):
+        raise BadRequest("%s must be a list of [u, v] pairs" % name)
+    return [_pixel(c, "%s[%d]" % (name, i)) for i, c in enumerate(corners)]
 
 
 MAX_FLASH_CELLS = 16384
@@ -634,31 +708,47 @@ MAX_FLASH_CELLS = 16384
 
 def _parse_flash_grids(payload):
     """cols, rows, ambient[] and flash[] from a /api/flash request body."""
-    cols = max(2, int(payload.get("cols") or 96))
-    rows = max(2, int(payload.get("rows") or 54))
+    cols = _bounded_int(payload.get("cols"), 96, 2, 256, "cols")
+    rows = _bounded_int(payload.get("rows"), 54, 2, 256, "rows")
     if cols * rows > MAX_FLASH_CELLS:
         raise ValueError("grid too large: cols*rows must be <= %d" % MAX_FLASH_CELLS)
-    ambient = [float(x) for x in (payload.get("ambient") or [])]
-    flash = [float(x) for x in (payload.get("flash") or [])]
+    ambient = [_number(x, name="ambient[%d]" % i) for i, x in
+               enumerate(payload.get("ambient") or [])]
+    flash = [_number(x, name="flash[%d]" % i) for i, x in
+             enumerate(payload.get("flash") or [])]
     if len(ambient) != cols * rows or len(flash) != cols * rows:
         raise ValueError("ambient and flash must each hold cols*rows values")
     return cols, rows, ambient, flash
 
 
 def _parse_flash_calibration(payload):
-    raw = payload.get("calibration") or {}
-    depth = _opt_float(raw.get("reference_depth_m"))
-    delta = _opt_float(raw.get("reference_delta_dn"))
+    raw = payload.get("calibration")
+    if raw is None:
+        raw = {}
+    elif not isinstance(raw, dict):
+        raise ValueError("calibration must be an object")
+    depth = _opt_float(raw.get("reference_depth_m"),
+                       "calibration.reference_depth_m")
+    delta = _opt_float(raw.get("reference_delta_dn"),
+                       "calibration.reference_delta_dn")
     if not depth or depth <= 0 or not delta or delta <= 0:
         raise ValueError("calibration.reference_depth_m and .reference_delta_dn "
                          "must be positive (anchor the light ping first)")
+    min_depth = _number(raw.get("min_depth_m"), 0.3,
+                        "calibration.min_depth_m", lo=0.01)
+    max_depth = _number(raw.get("max_depth_m"), 8.0,
+                        "calibration.max_depth_m", lo=0.01)
+    if max_depth <= min_depth:
+        raise ValueError("calibration.max_depth_m must exceed min_depth_m")
     return FlashCalibration(
         reference_depth_m=depth,
         reference_delta_dn=delta,
-        sigma_delta_dn=float(raw.get("sigma_delta_dn") or 1.0),
-        albedo_rel_sigma=float(raw.get("albedo_rel_sigma") or 0.15),
-        min_depth_m=float(raw.get("min_depth_m") or 0.3),
-        max_depth_m=float(raw.get("max_depth_m") or 8.0),
+        sigma_delta_dn=_number(raw.get("sigma_delta_dn"), 1.0,
+                               "calibration.sigma_delta_dn", lo=0.001),
+        albedo_rel_sigma=_number(raw.get("albedo_rel_sigma"), 0.15,
+                                 "calibration.albedo_rel_sigma", lo=0.0, hi=10.0),
+        min_depth_m=min_depth,
+        max_depth_m=max_depth,
     )
 
 
