@@ -31,6 +31,12 @@ medians over noise seeds, with `n` stated; a single draw is always labelled.
   `422` instead of being read as true by `bool()`. The `include_rejected` query
   flag accepts `1/true/yes/on` and `0/false/no/off` and returns `400` for
   anything else.
+- String labels are validated: `room`, `session`, `object_class`, `tag` and
+  `kind` must be strings, at most 128 characters, free of control characters,
+  and are trimmed at the edges — `422` in a body, `400` in a query. `kind` is
+  limited to `rectangle`/`cuboid`, and a cuboid fit with fewer than eight
+  corners now fails instead of silently fitting a rectangle. Previously
+  `{"room": {"x": 1}}` was `str()`-coerced into the database.
 
 ### Changed
 

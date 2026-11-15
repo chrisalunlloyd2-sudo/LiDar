@@ -143,6 +143,24 @@ def _flag(value, default=False, name="flag"):
 _TRUE_WORDS = ("1", "true", "yes", "on")
 _FALSE_WORDS = ("0", "false", "no", "off")
 
+MAX_TEXT_LEN = 128
+
+
+def _text(value, default="", name="value", max_len=MAX_TEXT_LEN):
+    """A short printable label from the wire (room, session, tag, kind)."""
+    if value is None or value == "":
+        return default
+    if not isinstance(value, str):
+        raise BadRequest("%s must be a string" % name)
+    text = value.strip()
+    if not text:
+        return default
+    if len(text) > max_len:
+        raise BadRequest("%s must be at most %d characters" % (name, max_len))
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in text):
+        raise BadRequest("%s must not contain control characters" % name)
+    return text
+
 
 def _query_flag(value, default=False, name="flag"):
     """Boolean from a query string; only the listed words are accepted."""
@@ -238,7 +256,8 @@ def parse_observation(payload):
         pose=parse_pose(payload),
         known_width_mm=_opt_float(payload.get("known_width_mm"),
                                   "known_width_mm", lo=0.01, hi=100000.0),
-        object_class=str(payload.get("object_class") or "unknown"),
+        object_class=_text(payload.get("object_class"), "unknown",
+                           "object_class"),
         camera_height_m=_number(payload.get("camera_height_m"), 1.5,
                                 "camera_height_m", lo=0.01, hi=1000.0),
         texture_density=_opt_float(payload.get("texture_density"),
@@ -248,7 +267,7 @@ def parse_observation(payload):
         arrowhead=_opt_float(payload.get("arrowhead"), "arrowhead", lo=0.0, hi=1.0),
         specular=_opt_float(payload.get("specular"), "specular", lo=0.0, hi=1.0),
         contrast=_opt_float(payload.get("contrast"), "contrast", lo=0.0, hi=1.0),
-        room=str(payload.get("room") or "unknown"),
+        room=_text(payload.get("room"), "unknown", "room"),
         timestamp=_number(payload.get("timestamp"), time.time(), "timestamp", lo=0.0),
     )
 
@@ -429,17 +448,24 @@ class LidarHandler(BaseHTTPRequestHandler):
                                      MAX_MAP_LIMIT, "limit")
                 include_rejected = _query_flag(
                     _first(q, "include_rejected"), False, "include_rejected")
+                room = _text(_first(q, "room"), None, "room")
+                tag = _text(_first(q, "tag"), None, "tag")
             except ValueError as exc:
                 return self._send(400, {"error": str(exc)})
             points = self.server.store.list_map_points(
-                room=_first(q, "room"), tag=_first(q, "tag"),
+                room=room, tag=tag,
                 limit=limit,
                 include_rejected=include_rejected,
             )
             return self._send(200, {"count": len(points), "points": points})
         if path == "/api/inventory":
             q = parse_qs(parsed.query)
-            items = self.server.store.list_items(room=_first(q, "room"), tag=_first(q, "tag"))
+            try:
+                room = _text(_first(q, "room"), None, "room")
+                tag = _text(_first(q, "tag"), None, "tag")
+            except ValueError as exc:
+                return self._send(400, {"error": str(exc)})
+            items = self.server.store.list_items(room=room, tag=tag)
             return self._send(200, {"count": len(items), "items": items,
                                     "summary": self.server.store.summary()})
         return self._send(404, {"error": "not found"})
@@ -495,7 +521,7 @@ class LidarHandler(BaseHTTPRequestHandler):
         result = process_observation(
             obs, self.server.store, self.server.engine,
             level=_level(payload.get("level")),
-            session=str(payload.get("session") or "default"),
+            session=_text(payload.get("session"), "default", "session"),
             do_fit=_flag(payload.get("fit"), False, "fit"),
         )
         return self._send(200 if "error" not in result else 422, result)
@@ -510,14 +536,17 @@ class LidarHandler(BaseHTTPRequestHandler):
             rows = _bounded_int(payload.get("rows"), 16, 1, 256, "rows")
             if cols * rows > MAX_SCAN_CELLS:
                 raise ValueError("cols*rows must be <= %d" % MAX_SCAN_CELLS)
+            store = _flag(payload.get("store"), True, "store")
+            if store:
+                room = _text(payload.get("room"), "unknown", "room")
+                session = _text(payload.get("session"), "scan", "session")
         except ValueError as exc:
             return self._send(422, {"error": str(exc)})
         points = scan_ground(pose, intr, camera_height, cols=cols, rows=rows)
-        if _flag(payload.get("store"), True, "store"):
-            room = str(payload.get("room") or "unknown")
+        if store:
             now = time.time()
             self.server.store.add_map_points([{
-                "ts": now, "session": str(payload.get("session") or "scan"),
+                "ts": now, "session": session,
                 "room": room,
                 "lat": gp.lat, "lon": gp.lon, "alt_m": gp.alt_m,
                 "radius_m": gp.radius_m,
@@ -532,8 +561,10 @@ class LidarHandler(BaseHTTPRequestHandler):
         intr = parse_intrinsics(payload)
         pts = _pairs(payload.get("corners_px") or [], "corners_px")
         depth_m = _number(payload.get("depth_m"), 2.0, "depth_m", lo=0.01, hi=1000.0)
-        kind = str(payload.get("kind") or "rectangle")
-        if kind == "cuboid" and len(pts) >= 8:
+        kind = _text(payload.get("kind"), "rectangle", "kind")
+        if kind not in ("rectangle", "cuboid"):
+            raise BadRequest("kind must be rectangle or cuboid")
+        if kind == "cuboid":
             distance_m = _number(payload.get("distance_m"), depth_m,
                                  "distance_m", lo=0.01, hi=1000.0)
             result = fit_cuboid(pts, intr, distance_m)
@@ -566,12 +597,12 @@ class LidarHandler(BaseHTTPRequestHandler):
         return self._send(200, point)
 
     def _handle_premade(self, payload):
-        obj = by_tag(str(payload.get("tag") or "2x4"))
+        obj = by_tag(_text(payload.get("tag"), "2x4", "tag"))
         if obj is None:
             return self._send(404, {"error": "unknown premade tag"})
         intr = parse_intrinsics(payload)
         depth_m = _number(payload.get("depth_m"), 2.0, "depth_m", lo=0.01, hi=1000.0)
-        room = str(payload.get("room") or "premade")
+        room = _text(payload.get("room"), "premade", "room")
         noise_frac = _number(payload.get("noise_frac"), 0.0,
                              "noise_frac", lo=0.0, hi=1.0)
         obs = synthesize(obj, depth_m, intrinsics=intr, room=room,
@@ -606,7 +637,7 @@ class LidarHandler(BaseHTTPRequestHandler):
     def _handle_plan(self, payload):
         depth_m = _number(payload.get("depth_m"), 2.0, "depth_m", lo=0.01, hi=1000.0)
         budget = _bounded_int(payload.get("budget"), 6, 1, 16, "budget")
-        tag = str(payload.get("tag") or "")
+        tag = _text(payload.get("tag"), "", "tag")
         obj = by_tag(tag) if tag else None
         w_mm = _opt_float(payload.get("object_w_mm"), "object_w_mm",
                           lo=0.0, hi=100000.0)
@@ -688,7 +719,7 @@ class LidarHandler(BaseHTTPRequestHandler):
 
     def _handle_demo(self, payload):
         intr = parse_intrinsics(payload)
-        room = str(payload.get("room") or "basement B")
+        room = _text(payload.get("room"), "basement B", "room")
         seeds = [
             ("2x4", 88.9, 3.0, 80.0),
             ("2x6", 139.7, 4.5, 105.0),

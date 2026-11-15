@@ -396,6 +396,71 @@ class TestServer(unittest.TestCase):
             self.assertEqual(status, 200)
             self.assertIn("points", body)
 
+    # ── string body fields ─────────────────────────────────────────────
+    def test_observe_rejects_non_string_labels(self):
+        for key in ("room", "object_class", "session"):
+            payload = observe_payload()
+            payload[key] = {"name": "x"}
+            self.assert_rejected("/api/observe", payload)
+
+    def test_scan_rejects_non_string_labels(self):
+        for key in ("room", "session"):
+            self.assert_rejected("/api/scan", {key: 7})
+
+    def test_premade_rejects_non_string_tag(self):
+        self.assert_rejected("/api/premade", {"tag": ["2x4"]})
+
+    def test_plan_rejects_non_string_tag(self):
+        self.assert_rejected("/api/plan", {"tag": 42})
+
+    def test_demo_rejects_non_string_room(self):
+        self.assert_rejected("/api/demo", {"room": True})
+
+    def test_labels_reject_control_characters(self):
+        payload = observe_payload()
+        payload["room"] = "base\nment"
+        self.assert_rejected("/api/observe", payload)
+
+    def test_labels_reject_overlong_values(self):
+        payload = observe_payload()
+        payload["room"] = "r" * 129
+        self.assert_rejected("/api/observe", payload)
+        payload["room"] = "r" * 128
+        status, _ = request_json(self.base, "POST", "/api/observe", payload)
+        self.assertEqual(status, 200)
+
+    def test_labels_are_trimmed(self):
+        payload = observe_payload()
+        payload["room"] = "  trim room  "
+        status, _ = request_json(self.base, "POST", "/api/observe", payload)
+        self.assertEqual(status, 200)
+        status, inv = request_json(
+            self.base, "GET", "/api/inventory?room=trim%20room")
+        self.assertEqual(status, 200)
+        self.assertGreaterEqual(inv["count"], 1)
+
+    def test_fit_rejects_unknown_kind(self):
+        corners = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]
+        self.assert_rejected("/api/fit", {"corners_px": corners,
+                                          "kind": "hexagon"})
+
+    def test_fit_cuboid_needs_eight_corners(self):
+        corners = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]
+        self.assert_rejected("/api/fit", {"corners_px": corners,
+                                          "kind": "cuboid"})
+
+    def test_query_labels_reject_control_characters(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            request_json(self.base, "GET", "/api/map?room=bad%00room")
+        self.assertEqual(ctx.exception.code, 400)
+        ctx.exception.close()
+
+    def test_query_rejects_overlong_room(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            request_json(self.base, "GET", "/api/inventory?room=" + "r" * 129)
+        self.assertEqual(ctx.exception.code, 400)
+        ctx.exception.close()
+
     # ── modular mmap GUI ───────────────────────────────────────────────
     def test_pages_listed(self):
         status, body = request_json(self.base, "GET", "/api/pages")
