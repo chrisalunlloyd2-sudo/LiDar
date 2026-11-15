@@ -97,6 +97,19 @@ def _opt_float(value):
         return None
 
 
+def _bounded_int(value, default, lo, hi, name):
+    """Parse a request integer, refusing anything outside [lo, hi]."""
+    if value is None or value == "":
+        return default
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        raise ValueError("%s must be an integer" % name)
+    if not lo <= number <= hi:
+        raise ValueError("%s must be in [%d, %d]" % (name, lo, hi))
+    return number
+
+
 def parse_intrinsics(payload):
     intr = payload.get("intrinsics") or {}
     image_w = int(intr.get("image_w") or payload.get("image_w") or 720)
@@ -324,9 +337,14 @@ class LidarHandler(BaseHTTPRequestHandler):
             return self._send(200, {"keep": {}, "prune": {}})
         if path == "/api/map":
             q = parse_qs(parsed.query)
+            try:
+                limit = _bounded_int(_first(q, "limit"), 500, 1,
+                                     MAX_MAP_LIMIT, "limit")
+            except ValueError as exc:
+                return self._send(400, {"error": str(exc)})
             points = self.server.store.list_map_points(
                 room=_first(q, "room"), tag=_first(q, "tag"),
-                limit=int(_first(q, "limit") or 500),
+                limit=limit,
                 include_rejected=_first(q, "include_rejected") in ("1", "true", "yes"),
             )
             return self._send(200, {"count": len(points), "points": points})
@@ -395,8 +413,13 @@ class LidarHandler(BaseHTTPRequestHandler):
         intr = parse_intrinsics(payload)
         pose = parse_pose(payload) or CameraPose()
         camera_height = float(payload.get("camera_height_m") or 1.5)
-        cols = int(payload.get("cols") or 24)
-        rows = int(payload.get("rows") or 16)
+        try:
+            cols = _bounded_int(payload.get("cols"), 24, 1, 256, "cols")
+            rows = _bounded_int(payload.get("rows"), 16, 1, 256, "rows")
+            if cols * rows > MAX_SCAN_CELLS:
+                raise ValueError("cols*rows must be <= %d" % MAX_SCAN_CELLS)
+        except ValueError as exc:
+            return self._send(422, {"error": str(exc)})
         points = scan_ground(pose, intr, camera_height, cols=cols, rows=rows)
         if payload.get("store", True):
             room = str(payload.get("room") or "unknown")

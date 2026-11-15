@@ -11,7 +11,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from server import build_server  # noqa: E402
-from server import MAX_BODY_BYTES  # noqa: E402
+from server import MAX_BODY_BYTES, MAX_MAP_LIMIT  # noqa: E402
 import flash_lidar  # noqa: E402
 from models import CameraIntrinsics, CameraPose  # noqa: E402
 from geospatial import enu_to_geodetic  # noqa: E402
@@ -189,6 +189,37 @@ class TestServer(unittest.TestCase):
             b"Content-Length: %d\r\n\r\n" % (MAX_BODY_BYTES + 1)
         ))
         self.assertIn(b"413", reply.split(b"\r\n", 1)[0])
+
+    def test_map_rejects_non_integer_limit(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            request_json(self.base, "GET", "/api/map?limit=abc")
+        self.assertEqual(ctx.exception.code, 400)
+        ctx.exception.close()
+
+    def test_map_rejects_out_of_range_limit(self):
+        for limit in ("0", "-5", str(MAX_MAP_LIMIT + 1)):
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                request_json(self.base, "GET", "/api/map?limit=" + limit)
+            self.assertEqual(ctx.exception.code, 400)
+            ctx.exception.close()
+
+    def test_scan_rejects_oversized_grid(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            request_json(self.base, "POST", "/api/scan", {"cols": 256, "rows": 256})
+        self.assertEqual(ctx.exception.code, 422)
+        ctx.exception.close()
+
+    def test_scan_rejects_non_integer_grid(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            request_json(self.base, "POST", "/api/scan", {"cols": "many"})
+        self.assertEqual(ctx.exception.code, 422)
+        ctx.exception.close()
+
+    def test_scan_rejects_empty_grid(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            request_json(self.base, "POST", "/api/scan", {"rows": 0})
+        self.assertEqual(ctx.exception.code, 422)
+        ctx.exception.close()
 
     # ── modular mmap GUI ───────────────────────────────────────────────
     def test_pages_listed(self):

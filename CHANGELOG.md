@@ -14,6 +14,10 @@ medians over noise seeds, with `n` stated; a single draw is always labelled.
   non-object JSON body return `400`, and an idle socket now times out after
   30 s. Previously a negative `Content-Length` blocked the handler thread until
   the client hung up.
+- `GET /api/map` validates `limit` (1–5000) and `POST /api/scan` validates
+  `cols`/`rows` (1–256 each, at most 16 384 cells) instead of raising inside
+  the handler. `?limit=abc` used to drop the connection with no reply, and an
+  unbounded grid could spin the sweep for hours.
 
 ## [2.5.3] — 2026-11-08
 
