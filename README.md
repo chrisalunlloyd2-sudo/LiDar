@@ -420,6 +420,9 @@ positive, cue densities are 0–1, and `budget` is 1–16. Boolean body flags
 `?include_rejected=` accepts `1/true/yes/on` and `0/false/no/off`. String labels
 (`room`, `session`, `object_class`, `tag`, `kind`) must be strings of at most 128
 printable characters and are trimmed; `kind` is `rectangle` or `cuboid`.
+Principal points and detection centres stay within one frame width/height of the
+image, pixel coordinates and flash cells are capped at ±1e6, and calibration
+depths are 0.01–1000 m.
 
 ## Security: secret scrub
 
@@ -446,7 +449,7 @@ contributions.
 
 ```bash
 cd ~/LiDar
-python3 -m pytest tests -q      # 284 tests
+python3 -m pytest tests -q      # 294 tests
 ```
 
 ## Known limitations
