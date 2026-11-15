@@ -75,6 +75,18 @@ VERSION = "2.5.3"
 GUI_DIR = os.path.join(HERE, "gui_pages")
 _DEFAULT_INTR = CameraIntrinsics.from_fov(720, 1280, 60.0)
 
+# ── wire limits ──────────────────────────────────────────────────────
+# The largest legitimate body is a full flash grid (~16k floats), so 4 MiB
+# leaves ample room while keeping a hostile client from exhausting the heap.
+MAX_BODY_BYTES = 4 * 1024 * 1024
+MAX_MAP_LIMIT = 5000
+MAX_SCAN_CELLS = 16384
+SOCKET_TIMEOUT_S = 30
+
+
+class PayloadTooLarge(ValueError):
+    """Request body longer than MAX_BODY_BYTES."""
+
 
 def _opt_float(value):
     if value is None or value == "":
@@ -230,6 +242,7 @@ def _demo_observation(intr, heading_deg, known_width_mm, depth_m, tag, room,
 
 class LidarHandler(BaseHTTPRequestHandler):
     server_version = "lidarv2/" + VERSION
+    timeout = SOCKET_TIMEOUT_S
 
     # ── helpers ────────────────────────────────────────────────────────
     def _send(self, code, body, content_type="application/json"):
@@ -245,9 +258,22 @@ class LidarHandler(BaseHTTPRequestHandler):
             pass
 
     def _read_json(self):
-        length = int(self.headers.get("Content-Length") or 0)
+        raw_len = self.headers.get("Content-Length")
+        if raw_len is None:
+            return {}
+        try:
+            length = int(raw_len)
+        except ValueError:
+            raise ValueError("Content-Length must be an integer")
+        if length < 0:
+            raise ValueError("Content-Length must not be negative")
+        if length > MAX_BODY_BYTES:
+            raise PayloadTooLarge("body exceeds %d bytes" % MAX_BODY_BYTES)
         raw = self.rfile.read(length) if length else b"{}"
-        return json.loads(raw or b"{}")
+        payload = json.loads(raw or b"{}")
+        if not isinstance(payload, dict):
+            raise ValueError("body must be a JSON object")
+        return payload
 
     def _serve_page(self, name):
         data = self.server.page_store.get(name)
@@ -316,8 +342,13 @@ class LidarHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         try:
             payload = self._read_json()
+        except PayloadTooLarge as exc:
+            # the unread body would corrupt keep-alive framing
+            self.close_connection = True
+            return self._send(413, {"error": str(exc)})
         except (ValueError, json.JSONDecodeError) as exc:
-            return self._send(400, {"error": "bad json: %s" % exc})
+            self.close_connection = True
+            return self._send(400, {"error": "bad request: %s" % exc})
         try:
             if parsed.path == "/api/observe":
                 return self._handle_observe(payload)

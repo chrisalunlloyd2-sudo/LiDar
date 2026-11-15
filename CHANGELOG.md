@@ -7,7 +7,13 @@ medians over noise seeds, with `n` stated; a single draw is always labelled.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- Request framing at the JSON API boundary: a body above 4 MiB is refused with
+  `413` before it is read, a malformed or negative `Content-Length` and a
+  non-object JSON body return `400`, and an idle socket now times out after
+  30 s. Previously a negative `Content-Length` blocked the handler thread until
+  the client hung up.
 
 ## [2.5.3] — 2026-11-08
 

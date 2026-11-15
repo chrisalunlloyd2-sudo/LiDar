@@ -1,5 +1,6 @@
 import json
 import os
+import socket
 import sys
 import threading
 import unittest
@@ -10,6 +11,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from server import build_server  # noqa: E402
+from server import MAX_BODY_BYTES  # noqa: E402
 import flash_lidar  # noqa: E402
 from models import CameraIntrinsics, CameraPose  # noqa: E402
 from geospatial import enu_to_geodetic  # noqa: E402
@@ -30,6 +32,18 @@ def request_json(base, method, path, payload=None):
 def request_text(base, path):
     with urllib.request.urlopen(base + path, timeout=10) as resp:
         return resp.status, resp.read().decode("utf-8")
+
+
+def raw_request(port, request, timeout=5):
+    """Send a hand-built request and read until the server closes."""
+    with socket.create_connection(("127.0.0.1", port), timeout=timeout) as sock:
+        sock.sendall(request)
+        chunks = []
+        while True:
+            chunk = sock.recv(4096)
+            if not chunk:
+                return b"".join(chunks)
+            chunks.append(chunk)
 
 
 def observe_payload(depth_m=1.0):
@@ -146,6 +160,35 @@ class TestServer(unittest.TestCase):
             request_json(self.base, "GET", "/api/nope")
         self.assertEqual(ctx.exception.code, 404)
         ctx.exception.close()
+
+    # ── request framing ────────────────────────────────────────────────
+    def test_non_object_json_is_rejected(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            request_json(self.base, "POST", "/api/observe", [])
+        self.assertEqual(ctx.exception.code, 400)
+        self.assertIn("JSON object", ctx.exception.read().decode("utf-8"))
+        ctx.exception.close()
+
+    def test_negative_content_length_is_rejected_without_hanging(self):
+        reply = raw_request(self.port, (
+            b"POST /api/observe HTTP/1.1\r\nHost: x\r\n"
+            b"Content-Length: -1\r\n\r\n{}"
+        ))
+        self.assertIn(b"400", reply.split(b"\r\n", 1)[0])
+
+    def test_malformed_content_length_is_rejected(self):
+        reply = raw_request(self.port, (
+            b"POST /api/observe HTTP/1.1\r\nHost: x\r\n"
+            b"Content-Length: nope\r\n\r\n{}"
+        ))
+        self.assertIn(b"400", reply.split(b"\r\n", 1)[0])
+
+    def test_oversized_body_is_refused_before_it_is_read(self):
+        reply = raw_request(self.port, (
+            b"POST /api/observe HTTP/1.1\r\nHost: x\r\n"
+            b"Content-Length: %d\r\n\r\n" % (MAX_BODY_BYTES + 1)
+        ))
+        self.assertIn(b"413", reply.split(b"\r\n", 1)[0])
 
     # ── modular mmap GUI ───────────────────────────────────────────────
     def test_pages_listed(self):
