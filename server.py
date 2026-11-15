@@ -183,7 +183,7 @@ def _bounded_int(value, default, lo, hi, name):
         return default
     try:
         number = int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         raise BadRequest("%s must be an integer" % name)
     if not lo <= number <= hi:
         raise BadRequest("%s must be in [%d, %d]" % (name, lo, hi))
@@ -215,8 +215,10 @@ def parse_intrinsics(payload):
         return CameraIntrinsics.from_fov(image_w, image_h, fov)
     return CameraIntrinsics(
         f_px=f_px,
-        cx=_number(intr.get("cx"), image_w / 2.0, "cx"),
-        cy=_number(intr.get("cy"), image_h / 2.0, "cy"),
+        cx=_number(intr.get("cx"), image_w / 2.0, "cx",
+                   lo=-image_w, hi=2 * image_w),
+        cy=_number(intr.get("cy"), image_h / 2.0, "cy",
+                   lo=-image_h, hi=2 * image_h),
         image_w=image_w,
         image_h=image_h,
         fov_deg=fov,
@@ -234,10 +236,13 @@ def parse_pose(payload):
     return CameraPose(
         lat=_number(p.get("lat"), 0.0, "pose.lat", lo=-90.0, hi=90.0),
         lon=_number(p.get("lon"), 0.0, "pose.lon", lo=-180.0, hi=180.0),
-        alt_m=_number(p.get("alt_m"), 0.0, "pose.alt_m"),
-        heading_deg=_number(p.get("heading_deg"), 0.0, "pose.heading_deg"),
-        pitch_deg=_number(p.get("pitch_deg"), 0.0, "pose.pitch_deg"),
-        roll_deg=_number(p.get("roll_deg"), 0.0, "pose.roll_deg"),
+        alt_m=_number(p.get("alt_m"), 0.0, "pose.alt_m", lo=-1e5, hi=1e6),
+        heading_deg=_number(p.get("heading_deg"), 0.0, "pose.heading_deg",
+                            lo=-360.0, hi=360.0),
+        pitch_deg=_number(p.get("pitch_deg"), 0.0, "pose.pitch_deg",
+                          lo=-180.0, hi=180.0),
+        roll_deg=_number(p.get("roll_deg"), 0.0, "pose.roll_deg",
+                         lo=-180.0, hi=180.0),
         accuracy_m=_number(p.get("accuracy_m"), 8.0, "pose.accuracy_m", lo=0.0),
         has_gps=_flag(p.get("has_gps"), False, "pose.has_gps"),
     )
@@ -247,11 +252,13 @@ def parse_observation(payload):
     intr = parse_intrinsics(payload)
     return Observation(
         object_px_width=_number(payload.get("object_px_width"), 0.0,
-                                "object_px_width", lo=0.0),
+                                "object_px_width", lo=0.0, hi=1e6),
         object_px_height=_number(payload.get("object_px_height"), 0.0,
-                                 "object_px_height", lo=0.0),
-        center_x=_number(payload.get("center_x"), intr.cx, "center_x"),
-        center_y=_number(payload.get("center_y"), intr.cy, "center_y"),
+                                 "object_px_height", lo=0.0, hi=1e6),
+        center_x=_number(payload.get("center_x"), intr.cx, "center_x",
+                         lo=-intr.image_w, hi=2 * intr.image_w),
+        center_y=_number(payload.get("center_y"), intr.cy, "center_y",
+                         lo=-intr.image_h, hi=2 * intr.image_h),
         intrinsics=intr,
         pose=parse_pose(payload),
         known_width_mm=_opt_float(payload.get("known_width_mm"),
@@ -278,7 +285,10 @@ def process_observation(obs, store, engine, level=0.95, session="default", do_fi
     if not cues:
         return {"error": "no depth cues (need known_width_mm and/or ground geometry)"}
 
-    estimate = engine.estimate(obs, level=level)
+    try:
+        estimate = engine.estimate(obs, level=level)
+    except ValueError as exc:
+        return {"error": str(exc)}
     illusions = analyze_illusions(obs, cues)
     corrections = evaluate_illusions(obs, cues)
 
@@ -751,12 +761,12 @@ def _first(query, key):
 def _pixel(value, name):
     """One (u, v) pair from `[u, v]` or `{u, v}`; both numbers are required."""
     if isinstance(value, dict):
-        return (_number(value.get("u"), name=name + ".u"),
-                _number(value.get("v"), name=name + ".v"))
+        return (_number(value.get("u"), name=name + ".u", lo=-1e6, hi=1e6),
+                _number(value.get("v"), name=name + ".v", lo=-1e6, hi=1e6))
     if not isinstance(value, (list, tuple)) or len(value) < 2:
         raise BadRequest("%s must be [u, v]" % name)
-    return (_number(value[0], name=name + ".u"),
-            _number(value[1], name=name + ".v"))
+    return (_number(value[0], name=name + ".u", lo=-1e6, hi=1e6),
+            _number(value[1], name=name + ".v", lo=-1e6, hi=1e6))
 
 
 def _pairs(corners, name="corners"):
@@ -768,18 +778,28 @@ def _pairs(corners, name="corners"):
 MAX_FLASH_CELLS = 16384
 
 
+def _grid_values(payload, name, expected):
+    """One ambient/flash grid: a list of `expected` finite numbers."""
+    raw = payload.get(name)
+    if raw is None:
+        raw = []
+    if not isinstance(raw, list):
+        raise ValueError("%s must be a list of %d numbers" % (name, expected))
+    if len(raw) != expected:
+        raise ValueError("ambient and flash must each hold cols*rows values")
+    return [_number(x, name="%s[%d]" % (name, i), lo=-1e6, hi=1e6)
+            for i, x in enumerate(raw)]
+
+
 def _parse_flash_grids(payload):
     """cols, rows, ambient[] and flash[] from a /api/flash request body."""
     cols = _bounded_int(payload.get("cols"), 96, 2, 256, "cols")
     rows = _bounded_int(payload.get("rows"), 54, 2, 256, "rows")
     if cols * rows > MAX_FLASH_CELLS:
         raise ValueError("grid too large: cols*rows must be <= %d" % MAX_FLASH_CELLS)
-    ambient = [_number(x, name="ambient[%d]" % i) for i, x in
-               enumerate(payload.get("ambient") or [])]
-    flash = [_number(x, name="flash[%d]" % i) for i, x in
-             enumerate(payload.get("flash") or [])]
-    if len(ambient) != cols * rows or len(flash) != cols * rows:
-        raise ValueError("ambient and flash must each hold cols*rows values")
+    expected = cols * rows
+    ambient = _grid_values(payload, "ambient", expected)
+    flash = _grid_values(payload, "flash", expected)
     return cols, rows, ambient, flash
 
 
@@ -790,23 +810,23 @@ def _parse_flash_calibration(payload):
     elif not isinstance(raw, dict):
         raise ValueError("calibration must be an object")
     depth = _opt_float(raw.get("reference_depth_m"),
-                       "calibration.reference_depth_m")
+                       "calibration.reference_depth_m", lo=0.01, hi=1000.0)
     delta = _opt_float(raw.get("reference_delta_dn"),
-                       "calibration.reference_delta_dn")
-    if not depth or depth <= 0 or not delta or delta <= 0:
+                       "calibration.reference_delta_dn", lo=1e-9, hi=1e6)
+    if not depth or not delta:
         raise ValueError("calibration.reference_depth_m and .reference_delta_dn "
                          "must be positive (anchor the light ping first)")
     min_depth = _number(raw.get("min_depth_m"), 0.3,
-                        "calibration.min_depth_m", lo=0.01)
+                        "calibration.min_depth_m", lo=0.01, hi=1000.0)
     max_depth = _number(raw.get("max_depth_m"), 8.0,
-                        "calibration.max_depth_m", lo=0.01)
+                        "calibration.max_depth_m", lo=0.01, hi=1000.0)
     if max_depth <= min_depth:
         raise ValueError("calibration.max_depth_m must exceed min_depth_m")
     return FlashCalibration(
         reference_depth_m=depth,
         reference_delta_dn=delta,
         sigma_delta_dn=_number(raw.get("sigma_delta_dn"), 1.0,
-                               "calibration.sigma_delta_dn", lo=0.001),
+                               "calibration.sigma_delta_dn", lo=0.001, hi=1e6),
         albedo_rel_sigma=_number(raw.get("albedo_rel_sigma"), 0.15,
                                  "calibration.albedo_rel_sigma", lo=0.0, hi=10.0),
         min_depth_m=min_depth,

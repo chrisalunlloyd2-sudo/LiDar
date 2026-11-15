@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import socket
 import sys
@@ -337,6 +338,45 @@ class TestServer(unittest.TestCase):
         ambient = [10.0] * 16
         ambient[7] = float("nan")
         self.assert_rejected("/api/flash", self.flash_grid_payload(ambient=ambient))
+
+    def test_flash_rejects_scalar_grids(self):
+        payload = self.flash_grid_payload()
+        for key in ("ambient", "flash"):
+            bad = dict(payload)
+            bad[key] = -float("inf")
+            self.assert_rejected("/api/flash", bad)
+            self.assert_rejected("/api/flash/calibrate", bad)
+
+    def test_flash_rejects_extreme_reference_depth(self):
+        cal = dict(self.flash_grid_payload()["calibration"],
+                   reference_depth_m=1e308)
+        self.assert_rejected("/api/flash", self.flash_grid_payload(calibration=cal))
+
+    def test_plan_rejects_non_finite_budget(self):
+        for value in (float("inf"), -float("inf")):
+            self.assert_rejected("/api/plan", {"budget": value})
+
+    def test_scan_rejects_extreme_principal_point(self):
+        payload = {"intrinsics": {"f_px": 554.256, "cx": 1e308,
+                                  "image_w": 640, "image_h": 480}}
+        self.assert_rejected("/api/scan", payload)
+
+    def test_observe_rejects_extreme_center(self):
+        payload = observe_payload()
+        payload["center_x"] = 1e308
+        self.assert_rejected("/api/observe", payload)
+
+    def test_tiny_pixel_width_does_not_poison_the_estimate(self):
+        payload = {"known_width_mm": 88.9, "texture_density": 0.2,
+                   "object_px_width": 1e-308}
+        status, body = request_json(self.base, "POST", "/api/observe", payload)
+        self.assertEqual(status, 200)
+        self.assertTrue(math.isfinite(body["estimate"]["depth_m"]))
+        self.assertTrue(math.isfinite(body["estimate"]["ci_high_m"]))
+
+    def test_unusable_cues_abstain_with_422(self):
+        payload = {"known_width_mm": 88.9, "object_px_width": 1e-308}
+        self.assert_rejected("/api/observe", payload)
 
     # ── boolean body fields ────────────────────────────────────────────
     def test_scan_rejects_non_boolean_store(self):

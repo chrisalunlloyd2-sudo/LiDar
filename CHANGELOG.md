@@ -37,6 +37,14 @@ medians over noise seeds, with `n` stated; a single draw is always labelled.
   limited to `rectangle`/`cuboid`, and a cuboid fit with fewer than eight
   corners now fails instead of silently fitting a rectangle. Previously
   `{"room": {"x": 1}}` was `str()`-coerced into the database.
+- The POST surface is property-tested (`tests/test_fuzz_surface.py`): mutated
+  and random bodies must answer 2xx/4xx, never `5xx`, and the reply must parse
+  as strict JSON. The fuzzer found three holes, now closed — a scalar
+  `ambient`/`flash` raised `TypeError`, a non-finite `budget` raised
+  `OverflowError`, and extreme principal-point, centre, pose-angle or
+  calibration values overflowed the geodetic/gauge math. Those fields are
+  bounded, the fusion drops non-finite cues, and an estimate with no usable
+  cue abstains with `422` instead of emitting `NaN`.
 
 ### Changed
 

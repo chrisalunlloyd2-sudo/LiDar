@@ -37,6 +37,9 @@ def _prepare(cues):
             continue
         if not (c.depth_m > 0.0) or not (c.sigma_m > 0.0):
             continue
+        # an overflowing cue carries no information and would poison the mean
+        if not (math.isfinite(c.depth_m) and math.isfinite(c.sigma_m)):
+            continue
         out.append(c)
     return out
 
