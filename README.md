@@ -415,7 +415,9 @@ Open `http://<phone-ip>:8790` in Chrome. Allow camera + location + motion.
 Every numeric field is checked at the boundary: non-numbers, `NaN`/`Infinity`
 and out-of-range values return `422` naming the field. Confidence `level` must be
 0.01–0.9999, pose latitude/longitude are ±90/±180, depths and `sigma_px` must be
-positive, cue densities are 0–1, and `budget` is 1–16.
+positive, cue densities are 0–1, and `budget` is 1–16. Boolean body flags
+(`has_gps`, `fit`, `store`, `mixed_albedo`, `cells`) must be JSON `true`/`false`;
+`?include_rejected=` accepts `1/true/yes/on` and `0/false/no/off`.
 
 ## Security: secret scrub
 
@@ -442,7 +444,7 @@ contributions.
 
 ```bash
 cd ~/LiDar
-python3 -m pytest tests -q      # 264 tests
+python3 -m pytest tests -q      # 272 tests
 ```
 
 ## Known limitations
