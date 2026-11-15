@@ -449,7 +449,7 @@ contributions.
 
 ```bash
 cd ~/LiDar
-python3 -m pytest tests -q      # 294 tests
+python3 -m pytest tests -q      # 303 tests
 ```
 
 ## Known limitations
