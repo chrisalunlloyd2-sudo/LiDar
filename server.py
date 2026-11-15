@@ -84,6 +84,8 @@ MAX_MAP_LIMIT = 5000
 MAX_SCAN_CELLS = 16384
 SOCKET_TIMEOUT_S = 30
 HARDWARE_CACHE_TTL_S = 10.0
+ANALYSIS_CACHE_TTL_S = 30.0
+ANALYSIS_CACHE_MAX = 32
 
 
 class PayloadTooLarge(ValueError):
@@ -112,6 +114,32 @@ def _hardware_report(seconds=0.2):
         report = probe_hardware(seconds=seconds)
         _hardware_cache["report"] = report
         _hardware_cache["ts"] = time.monotonic()
+        return report
+
+
+_analysis_lock = threading.Lock()
+_analysis_cache = {}
+
+
+def _cached_analysis(key, produce):
+    """Single-flight, TTL-cached expensive sweep (arena, benchmark).
+
+    One lock serializes runs, so a burst never stacks CPU-heavy sweeps; the
+    first run fills the cache and identical keys then read it until the TTL
+    expires.  Benchmarks key on their validated arguments; the cache is capped
+    so an argument fuzzer cannot grow it without bound.
+    """
+    with _analysis_lock:
+        entry = _analysis_cache.get(key)
+        if (entry is not None
+                and time.monotonic() - entry[0] < ANALYSIS_CACHE_TTL_S):
+            return entry[1]
+        report = produce()
+        _analysis_cache[key] = (time.monotonic(), report)
+        if len(_analysis_cache) > ANALYSIS_CACHE_MAX:
+            oldest = sorted(_analysis_cache, key=lambda k: _analysis_cache[k][0])
+            for stale_key in oldest[:len(_analysis_cache) - ANALYSIS_CACHE_MAX]:
+                del _analysis_cache[stale_key]
         return report
 
 
@@ -534,7 +562,9 @@ class LidarHandler(BaseHTTPRequestHandler):
             if parsed.path == "/api/benchmark":
                 return self._handle_benchmark(payload)
             if parsed.path == "/api/arena":
-                return self._send(200, run_arena(quick=True, top_k=3))
+                return self._send(200, _cached_analysis(
+                    ("arena", "quick", 3),
+                    lambda: run_arena(quick=True, top_k=3)))
             if parsed.path == "/api/plan":
                 return self._handle_plan(payload)
             if parsed.path == "/api/flash":
@@ -663,13 +693,17 @@ class LidarHandler(BaseHTTPRequestHandler):
         })
 
     def _handle_benchmark(self, payload):
-        report = run_benchmark(
-            depth_m=_number(payload.get("depth_m"), 2.0, "depth_m", lo=0.01, hi=1000.0),
-            noise_frac=_number(payload.get("noise_frac"), 0.0,
-                               "noise_frac", lo=0.0, hi=1.0),
-            level=_level(payload.get("level")),
-            intrinsics=parse_intrinsics(payload) if payload.get("intrinsics") else None,
-        )
+        depth_m = _number(payload.get("depth_m"), 2.0, "depth_m", lo=0.01, hi=1000.0)
+        noise_frac = _number(payload.get("noise_frac"), 0.0,
+                             "noise_frac", lo=0.0, hi=1.0)
+        level = _level(payload.get("level"))
+        intrinsics = parse_intrinsics(payload) if payload.get("intrinsics") else None
+        key = ("benchmark", depth_m, noise_frac, level,
+               None if intrinsics is None
+               else json.dumps(asdict(intrinsics), sort_keys=True))
+        report = _cached_analysis(key, lambda: run_benchmark(
+            depth_m=depth_m, noise_frac=noise_frac, level=level,
+            intrinsics=intrinsics))
         return self._send(200, report)
 
     def _handle_plan(self, payload):

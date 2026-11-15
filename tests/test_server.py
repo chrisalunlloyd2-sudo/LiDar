@@ -597,6 +597,90 @@ class TestServer(unittest.TestCase):
         self.assertIn("mean_mape_pct", body)
         self.assertIn("coverage_w_pct", body)
 
+    def reset_analysis_cache(self):
+        server._analysis_cache.clear()
+
+    def test_benchmark_endpoint_caches_by_arguments(self):
+        calls = []
+        real = server.run_benchmark
+
+        def fake(depth_m=2.0, noise_frac=0.0, level=0.95, intrinsics=None):
+            calls.append(depth_m)
+            return {"depth_m": depth_m, "results": []}
+
+        server.run_benchmark = fake
+        self.reset_analysis_cache()
+        try:
+            first = request_json(self.base, "POST", "/api/benchmark",
+                                 {"depth_m": 1.5})
+            second = request_json(self.base, "POST", "/api/benchmark",
+                                  {"depth_m": 1.5})
+            third = request_json(self.base, "POST", "/api/benchmark",
+                                 {"depth_m": 2.5})
+        finally:
+            server.run_benchmark = real
+            self.reset_analysis_cache()
+        self.assertEqual((first[0], second[0], third[0]), (200, 200, 200))
+        self.assertEqual(first[1], second[1])
+        self.assertEqual(calls, [1.5, 2.5])
+
+    def test_analysis_cache_expires(self):
+        calls = []
+
+        def produce():
+            calls.append(1)
+            return {"n": len(calls)}
+
+        self.reset_analysis_cache()
+        try:
+            first = server._cached_analysis(("ttl",), produce)
+            second = server._cached_analysis(("ttl",), produce)
+            ts, report = server._analysis_cache[("ttl",)]
+            server._analysis_cache[("ttl",)] = (
+                time.monotonic() - server.ANALYSIS_CACHE_TTL_S - 1.0, report)
+            third = server._cached_analysis(("ttl",), produce)
+        finally:
+            self.reset_analysis_cache()
+        self.assertEqual(first, second)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(third, {"n": 2})
+
+    def test_analysis_cache_is_bounded(self):
+        self.reset_analysis_cache()
+        try:
+            for i in range(server.ANALYSIS_CACHE_MAX + 5):
+                server._cached_analysis(("k", i), lambda i=i: {"i": i})
+            self.assertEqual(len(server._analysis_cache),
+                             server.ANALYSIS_CACHE_MAX)
+            self.assertNotIn(("k", 0), server._analysis_cache)
+        finally:
+            self.reset_analysis_cache()
+
+    def test_analysis_runs_once_under_concurrency(self):
+        calls = []
+
+        def slow():
+            calls.append(1)
+            time.sleep(0.05)
+            return {"ok": True}
+
+        self.reset_analysis_cache()
+        results = []
+        threads = [threading.Thread(
+            target=lambda: results.append(
+                server._cached_analysis(("burst",), slow)))
+            for _ in range(8)]
+        try:
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+        finally:
+            self.reset_analysis_cache()
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(results), 8)
+        self.assertTrue(all(report == {"ok": True} for report in results))
+
     def test_hardware_endpoint(self):
         status, body = request_json(self.base, "GET", "/api/hardware")
         self.assertEqual(status, 200)
@@ -686,6 +770,27 @@ class TestServer(unittest.TestCase):
             self.assertIn(stage, body)
             self.assertIn(stage, body["survivors"])
             self.assertIn(stage, body["pruned"])
+
+    def test_arena_endpoint_shares_one_run(self):
+        calls = []
+        real = server.run_arena
+
+        def fake(quick=True, top_k=3):
+            calls.append((quick, top_k))
+            time.sleep(0.05)
+            return {"survivors": {}, "pruned": {}}
+
+        server.run_arena = fake
+        self.reset_analysis_cache()
+        try:
+            status1, body1 = request_json(self.base, "POST", "/api/arena", {})
+            status2, body2 = request_json(self.base, "POST", "/api/arena", {})
+        finally:
+            server.run_arena = real
+            self.reset_analysis_cache()
+        self.assertEqual((status1, status2), (200, 200))
+        self.assertEqual(body1, body2)
+        self.assertEqual(calls, [(True, 3)])
 
     def test_survivors_endpoint(self):
         status, body = request_json(self.base, "GET", "/api/survivors")

@@ -55,6 +55,10 @@ medians over noise seeds, with `n` stated; a single draw is always labelled.
 
 ### Changed
 
+- `POST /api/arena` and `POST /api/benchmark` share one single-flight gate with
+  a 30 s cache (at most 32 argument keys). A burst runs one sweep and the rest
+  read the cached report: arena cold 2.5 s, warm 8 ms, a 6-way burst 41 ms
+  total; benchmarks key on their validated arguments.
 - `GET /api/hardware` caches its probe for 10 s on the monotonic clock and
   never runs two probes at once: a burst waits for the in-flight probe, then
   reads the cached report. Measured on this phone, the first call costs ~1 s of
