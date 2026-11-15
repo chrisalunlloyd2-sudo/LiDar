@@ -394,7 +394,7 @@ Open `http://<phone-ip>:8790` in Chrome. Allow camera + location + motion.
 | GET | `/api/health` | — | status + db + page count |
 | GET | `/api/config` | — | version + tag catalog |
 | GET | `/api/illusions` | — | the 5-illusion registry |
-| GET | `/api/hardware` | — | CPU/mem/GIL/fusion limits |
+| GET | `/api/hardware` | — | CPU/mem/GIL/fusion limits (10 s cache) |
 | GET | `/api/survivors` | — | arena keep/prune |
 | POST | `/api/arena` | `{}` | run the quick arena |
 | POST | `/api/observe` | observation JSON | depth+CI, 5 illusions, geo, item |
@@ -449,7 +449,7 @@ contributions.
 
 ```bash
 cd ~/LiDar
-python3 -m pytest tests -q      # 303 tests
+python3 -m pytest tests -q      # 306 tests
 ```
 
 ## Known limitations
