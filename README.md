@@ -398,7 +398,7 @@ Open `http://<phone-ip>:8790` in Chrome. Allow camera + location + motion.
 | GET | `/api/survivors` | — | arena keep/prune |
 | POST | `/api/arena` | `{}` | run the quick arena |
 | POST | `/api/observe` | observation JSON | depth+CI, 5 illusions, geo, item |
-| POST | `/api/scan` | intrinsics + pose + grid | ground point cloud |
+| POST | `/api/scan` | intrinsics + pose + `cols*rows ≤ 16384` | ground point cloud |
 | POST | `/api/fit` | `corners_px`, `depth_m`, `kind` | rectangle/cuboid fit |
 | POST | `/api/triangulate` | `pose1/pose2`, `uv1/uv2` or `corners1/2` | point / size |
 | POST | `/api/premade` | `{tag, depth_m}` | emulated vs truth + error % |
@@ -408,7 +408,7 @@ Open `http://<phone-ip>:8790` in Chrome. Allow camera + location + motion.
 | POST | `/api/flash/calibrate` | `{ambient[], flash[], reference_m}` | centre DN, health verdict, suggested `k` |
 | POST | `/api/flash/observe` | observation JSON + grids + `calibration` | flash cue fused with the monocular cues |
 | POST | `/api/demo` | `{room}` | seeded inventory |
-| GET | `/api/map` | `?room=&tag=&limit=` | accepted map points |
+| GET | `/api/map` | `?room=&tag=&limit=` (1–5000) | accepted map points |
 | GET | `/api/inventory` | `?room=&tag=` | items + summary |
 | POST | `/api/reset` | `{}` | clears map + inventory |
 
@@ -437,7 +437,7 @@ contributions.
 
 ```bash
 cd ~/LiDar
-python3 -m pytest tests -q      # 223 tests
+python3 -m pytest tests -q      # 247 tests
 ```
 
 ## Known limitations
