@@ -446,10 +446,15 @@ class LidarHandler(BaseHTTPRequestHandler):
         if path == "/api/hardware":
             return self._send(200, probe_hardware(seconds=0.2))
         if path == "/api/survivors":
-            surv = os.path.join(HERE, "arena_report_survivors.json")
-            if os.path.exists(surv):
-                with open(surv) as fh:
-                    return self._send(200, json.load(fh))
+            # a stale or partial report must degrade to the empty decision
+            try:
+                with open(os.path.join(HERE,
+                                       "arena_report_survivors.json")) as fh:
+                    survivors = json.load(fh)
+                if isinstance(survivors, dict):
+                    return self._send(200, survivors)
+            except (OSError, ValueError):
+                pass
             return self._send(200, {"keep": {}, "prune": {}})
         if path == "/api/map":
             q = parse_qs(parsed.query)

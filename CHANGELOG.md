@@ -45,6 +45,13 @@ medians over noise seeds, with `n` stated; a single draw is always labelled.
   calibration values overflowed the geodetic/gauge math. Those fields are
   bounded, the fusion drops non-finite cues, and an estimate with no usable
   cue abstains with `422` instead of emitting `NaN`.
+- The GET surface is property-tested too (`TestGetSurfaceFuzz`): every page and
+  API route, traversal-shaped page names, seeded random queries on
+  `/api/map` and `/api/inventory`, random paths, a 70 KB request line and a NUL
+  byte in the path or query must answer 2xx/4xx with strict JSON (or an HTML/JS
+  page), never `5xx`. `/api/survivors` now degrades to the empty decision when
+  the report is missing, unreadable, stale or not an object, instead of raising
+  or returning a JSON array.
 
 ### Changed
 

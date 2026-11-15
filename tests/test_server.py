@@ -3,6 +3,7 @@ import math
 import os
 import socket
 import sys
+import tempfile
 import threading
 import unittest
 import urllib.error
@@ -13,6 +14,7 @@ sys.path.insert(0, ROOT)
 
 from server import build_server  # noqa: E402
 from server import MAX_BODY_BYTES, MAX_MAP_LIMIT  # noqa: E402
+import server  # noqa: E402
 import flash_lidar  # noqa: E402
 from models import CameraIntrinsics, CameraPose  # noqa: E402
 from geospatial import enu_to_geodetic  # noqa: E402
@@ -614,6 +616,27 @@ class TestServer(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("keep", body)
         self.assertIn("prune", body)
+
+    def test_survivors_degrades_on_a_bad_report(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            report = os.path.join(tmp, "arena_report_survivors.json")
+            old = server.HERE
+            try:
+                server.HERE = tmp
+                for content in ("{not json", "[]", "null", ""):
+                    with open(report, "w", encoding="utf-8") as fh:
+                        fh.write(content)
+                    status, body = request_json(
+                        self.base, "GET", "/api/survivors")
+                    self.assertEqual(status, 200)
+                    self.assertEqual(body, {"keep": {}, "prune": {}})
+                with open(report, "w", encoding="utf-8") as fh:
+                    json.dump({"keep": {"fusers": ["a"]}, "prune": {}}, fh)
+                status, body = request_json(self.base, "GET", "/api/survivors")
+                self.assertEqual(status, 200)
+                self.assertEqual(body["keep"], {"fusers": ["a"]})
+            finally:
+                server.HERE = old
 
     def test_plan_endpoint(self):
         status, body = request_json(self.base, "POST", "/api/plan", {
