@@ -39,6 +39,17 @@ _MAP_FIELDS = (
     "ci_high_m", "confidence", "rejected", "flags",
 )
 
+_MAP_INSERT = "INSERT INTO map_points (%s) VALUES (%s)" % (
+    ", ".join(_MAP_FIELDS), ", ".join("?" * len(_MAP_FIELDS)),
+)
+
+
+def _map_row(kw):
+    values = {f: kw.get(f) for f in _MAP_FIELDS}
+    values["ts"] = kw.get("ts") or time.time()
+    values["rejected"] = 1 if values["rejected"] else 0
+    return tuple(values[f] for f in _MAP_FIELDS)
+
 
 class Store:
     def __init__(self, path=":memory:"):
@@ -52,18 +63,20 @@ class Store:
 
     # ── map points ─────────────────────────────────────────────────────
     def add_map_point(self, **kw):
-        now = kw.pop("ts", None) or time.time()
-        values = {f: kw.get(f) for f in _MAP_FIELDS}
-        values["ts"] = now
-        values["rejected"] = 1 if values["rejected"] else 0
         with self._lock:
-            cur = self._conn.execute(
-                "INSERT INTO map_points (%s) VALUES (%s)"
-                % (", ".join(_MAP_FIELDS), ", ".join("?" * len(_MAP_FIELDS))),
-                tuple(values[f] for f in _MAP_FIELDS),
-            )
+            cur = self._conn.execute(_MAP_INSERT, _map_row(kw))
             self._conn.commit()
             return cur.lastrowid
+
+    def add_map_points(self, points):
+        """Insert a whole scan in one transaction; returns the rows written."""
+        rows = [_map_row(dict(p)) for p in points]
+        if not rows:
+            return 0
+        with self._lock:
+            self._conn.executemany(_MAP_INSERT, rows)
+            self._conn.commit()
+        return len(rows)
 
     def list_map_points(self, room=None, tag=None, limit=500, include_rejected=False):
         clauses, params = [], []

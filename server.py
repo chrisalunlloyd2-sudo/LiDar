@@ -424,15 +424,16 @@ class LidarHandler(BaseHTTPRequestHandler):
         if payload.get("store", True):
             room = str(payload.get("room") or "unknown")
             now = time.time()
-            for gp in points:
-                self.server.store.add_map_point(
-                    ts=now, session=str(payload.get("session") or "scan"), room=room,
-                    lat=gp.lat, lon=gp.lon, alt_m=gp.alt_m, radius_m=gp.radius_m,
-                    east_m=gp.east_m, north_m=gp.north_m, up_m=gp.up_m,
-                    tag="ground", depth_m=gp.distance_m,
-                    ci_low_m=gp.distance_m, ci_high_m=gp.distance_m,
-                    confidence=0.5, rejected=0, flags="[]",
-                )
+            self.server.store.add_map_points([{
+                "ts": now, "session": str(payload.get("session") or "scan"),
+                "room": room,
+                "lat": gp.lat, "lon": gp.lon, "alt_m": gp.alt_m,
+                "radius_m": gp.radius_m,
+                "east_m": gp.east_m, "north_m": gp.north_m, "up_m": gp.up_m,
+                "tag": "ground", "depth_m": gp.distance_m,
+                "ci_low_m": gp.distance_m, "ci_high_m": gp.distance_m,
+                "confidence": 0.5, "rejected": 0, "flags": "[]",
+            } for gp in points])
         return self._send(200, {"count": len(points), "points": [asdict(p) for p in points]})
 
     def _handle_fit(self, payload):

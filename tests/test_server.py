@@ -221,6 +221,22 @@ class TestServer(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 422)
         ctx.exception.close()
 
+    def test_scan_stores_the_whole_grid(self):
+        status, body = request_json(self.base, "POST", "/api/scan", {
+            "intrinsics": {"f_px": 554.256, "cx": 160.0, "cy": 120.0,
+                           "image_w": 320, "image_h": 240, "fov_deg": 60.0},
+            "pose": {"lat": 45.0, "lon": 10.0, "alt_m": 50.0, "heading_deg": 0.0,
+                     "pitch_deg": 0.0, "roll_deg": 0.0, "accuracy_m": 5.0, "has_gps": True},
+            "camera_height_m": 1.5, "cols": 8, "rows": 6, "store": True,
+            "room": "batch room",
+        })
+        self.assertEqual(status, 200)
+        self.assertGreater(body["count"], 0)
+        status, mapped = request_json(
+            self.base, "GET", "/api/map?room=batch%20room&limit=500")
+        self.assertEqual(status, 200)
+        self.assertEqual(mapped["count"], body["count"])
+
     # ── modular mmap GUI ───────────────────────────────────────────────
     def test_pages_listed(self):
         status, body = request_json(self.base, "GET", "/api/pages")

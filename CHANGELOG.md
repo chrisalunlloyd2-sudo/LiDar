@@ -19,6 +19,13 @@ medians over noise seeds, with `n` stated; a single draw is always labelled.
   the handler. `?limit=abc` used to drop the connection with no reply, and an
   unbounded grid could spin the sweep for hours.
 
+### Changed
+
+- `POST /api/scan` stores its grid through `Store.add_map_points` in one
+  transaction instead of one commit per point. At the 16 384-cell cap a sweep
+  used to spend ~19 ms per row (~5 min, holding the store lock); the same grid
+  now commits in 0.56 s.
+
 ## [2.5.3] — 2026-11-08
 
 ### Added
