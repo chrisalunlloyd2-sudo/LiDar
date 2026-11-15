@@ -55,6 +55,10 @@ medians over noise seeds, with `n` stated; a single draw is always labelled.
 
 ### Changed
 
+- `GET /api/hardware` caches its probe for 10 s on the monotonic clock and
+  never runs two probes at once: a burst waits for the in-flight probe, then
+  reads the cached report. Measured on this phone, the first call costs ~1 s of
+  CPU, a cached call 6 ms, and a 10-way burst 36 ms total instead of ten probes.
 - `POST /api/scan` stores its grid through `Store.add_map_points` in one
   transaction instead of one commit per point. At the 16 384-cell cap a sweep
   used to spend ~19 ms per row (~5 min, holding the store lock); the same grid

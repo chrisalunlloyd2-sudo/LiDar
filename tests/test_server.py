@@ -5,6 +5,7 @@ import socket
 import sys
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -602,6 +603,81 @@ class TestServer(unittest.TestCase):
         self.assertIn("cpu_count", body)
         self.assertIn("fusion_ops_per_sec", body)
         self.assertIn("budget", body)
+
+    def reset_hardware_cache(self):
+        server._hardware_cache["report"] = None
+        server._hardware_cache["ts"] = 0.0
+
+    def test_hardware_endpoint_shares_one_probe(self):
+        calls = []
+        real = server.probe_hardware
+
+        def fake(seconds=0.2):
+            calls.append(seconds)
+            return {"cpu_count": 4, "probe": "fake"}
+
+        server.probe_hardware = fake
+        self.reset_hardware_cache()
+        try:
+            status1, body1 = request_json(self.base, "GET", "/api/hardware")
+            status2, body2 = request_json(self.base, "GET", "/api/hardware")
+        finally:
+            server.probe_hardware = real
+            self.reset_hardware_cache()
+        self.assertEqual((status1, status2), (200, 200))
+        self.assertEqual(body1, body2)
+        self.assertEqual(body1["probe"], "fake")
+        self.assertEqual(len(calls), 1)
+
+    def test_hardware_cache_expires(self):
+        calls = []
+        real = server.probe_hardware
+
+        def fake(seconds=0.2):
+            calls.append(1)
+            return {"n": len(calls)}
+
+        server.probe_hardware = fake
+        self.reset_hardware_cache()
+        try:
+            first = server._hardware_report()
+            second = server._hardware_report()
+            server._hardware_cache["ts"] = (
+                time.monotonic() - server.HARDWARE_CACHE_TTL_S - 1.0)
+            third = server._hardware_report()
+        finally:
+            server.probe_hardware = real
+            self.reset_hardware_cache()
+        self.assertEqual(first, second)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(third, {"n": 2})
+
+    def test_hardware_probe_runs_once_under_concurrency(self):
+        calls = []
+        real = server.probe_hardware
+
+        def slow(seconds=0.2):
+            calls.append(1)
+            time.sleep(0.05)
+            return {"ok": True}
+
+        server.probe_hardware = slow
+        self.reset_hardware_cache()
+        results = []
+        threads = [threading.Thread(
+            target=lambda: results.append(server._hardware_report()))
+            for _ in range(8)]
+        try:
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+        finally:
+            server.probe_hardware = real
+            self.reset_hardware_cache()
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(results), 8)
+        self.assertTrue(all(report == {"ok": True} for report in results))
 
     def test_arena_endpoint(self):
         status, body = request_json(self.base, "POST", "/api/arena", {})

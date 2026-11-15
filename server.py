@@ -32,6 +32,7 @@ import json
 import math
 import os
 import sys
+import threading
 import time
 from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -82,6 +83,7 @@ MAX_BODY_BYTES = 4 * 1024 * 1024
 MAX_MAP_LIMIT = 5000
 MAX_SCAN_CELLS = 16384
 SOCKET_TIMEOUT_S = 30
+HARDWARE_CACHE_TTL_S = 10.0
 
 
 class PayloadTooLarge(ValueError):
@@ -90,6 +92,27 @@ class PayloadTooLarge(ValueError):
 
 class BadRequest(ValueError):
     """A semantically invalid field in an otherwise well-formed request."""
+
+
+_hardware_lock = threading.Lock()
+_hardware_cache = {"ts": 0.0, "report": None}
+
+
+def _hardware_report(seconds=0.2):
+    """One shared hardware probe: TTL-cached and never run concurrently.
+
+    The probe costs ~0.2 s of CPU, so a burst of requests must not stack up
+    probes.  Holding the lock while probing caps concurrency at one; callers
+    that arrive during an in-flight probe wait and then read the fresh cache.
+    """
+    with _hardware_lock:
+        fresh = (time.monotonic() - _hardware_cache["ts"] < HARDWARE_CACHE_TTL_S)
+        if _hardware_cache["report"] is not None and fresh:
+            return _hardware_cache["report"]
+        report = probe_hardware(seconds=seconds)
+        _hardware_cache["report"] = report
+        _hardware_cache["ts"] = time.monotonic()
+        return report
 
 
 _REQUIRED = object()
@@ -444,7 +467,7 @@ class LidarHandler(BaseHTTPRequestHandler):
                 "note": "5 illusions + correction math; live severities appear on /api/observe",
             })
         if path == "/api/hardware":
-            return self._send(200, probe_hardware(seconds=0.2))
+            return self._send(200, _hardware_report())
         if path == "/api/survivors":
             # a stale or partial report must degrade to the empty decision
             try:
