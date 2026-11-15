@@ -417,7 +417,9 @@ and out-of-range values return `422` naming the field. Confidence `level` must b
 0.01–0.9999, pose latitude/longitude are ±90/±180, depths and `sigma_px` must be
 positive, cue densities are 0–1, and `budget` is 1–16. Boolean body flags
 (`has_gps`, `fit`, `store`, `mixed_albedo`, `cells`) must be JSON `true`/`false`;
-`?include_rejected=` accepts `1/true/yes/on` and `0/false/no/off`.
+`?include_rejected=` accepts `1/true/yes/on` and `0/false/no/off`. String labels
+(`room`, `session`, `object_class`, `tag`, `kind`) must be strings of at most 128
+printable characters and are trimmed; `kind` is `rectangle` or `cuboid`.
 
 ## Security: secret scrub
 
@@ -444,7 +446,7 @@ contributions.
 
 ```bash
 cd ~/LiDar
-python3 -m pytest tests -q      # 272 tests
+python3 -m pytest tests -q      # 284 tests
 ```
 
 ## Known limitations
