@@ -476,3 +476,21 @@ Release history with the measured numbers behind each decision lives in
 ## License
 
 MIT — see [LICENSE](LICENSE). Contributions are welcome under the same terms.
+
+
+---
+
+## 🌐 Sovereign Ecosystem Integration: LiDar ↔ AvatarAlive Spatial 3D Bridge
+
+[![Zero Dependencies](https://img.shields.io/badge/dependencies-zero%20(Python%20stdlib)-brightgreen.svg)](#)
+[![5-Illusion Debiasing](https://img.shields.io/badge/optical_illusions-5%2F5%20corrected-00E5FF.svg)](#)
+[![AvatarAlive Bridge](https://img.shields.io/badge/AvatarAlive-Tier%2013%20Verified-blueviolet.svg)](https://github.com/chrisalunlloyd2-sudo/AvatarAlive)
+
+`mermaid
+flowchart LR
+    A[Stereo / Motion Frames] --> B[Disparity & Inverse Depth]
+    B --> C[5-Illusion Debiasing Engine<br/>Ponzo / Müller-Lyer / Ebbinghaus / Hollow-Mask / Parallax]
+    C --> D[3D Metric Target X, Y, Z]
+    D --> E[LiDarSpatialBridge<br/>avataralive/tracking/lidar_bridge.py]
+    E --> F[AvatarAlive 60 FPS Studio<br/>Saccadic Gaze, 3D Head Pose & Pupil Accommodation]
+`
